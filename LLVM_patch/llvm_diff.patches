@@ -1,0 +1,274 @@
+diff --git a/.gitignore b/.gitignore
+index b33fbbf93237..ac5fd02f7edf 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -26,7 +26,7 @@
+ 
+ # Nested build directory
+ /build*
+-
++build/
+ #==============================================================================#
+ # Explicit files to ignore (only matches one).
+ #==============================================================================#
+diff --git a/llvm/lib/Transforms/CMakeLists.txt b/llvm/lib/Transforms/CMakeLists.txt
+index dda5f6de11e3..dfd7c2cd26d0 100644
+--- a/llvm/lib/Transforms/CMakeLists.txt
++++ b/llvm/lib/Transforms/CMakeLists.txt
+@@ -9,3 +9,5 @@ add_subdirectory(Hello)
+ add_subdirectory(ObjCARC)
+ add_subdirectory(Coroutines)
+ add_subdirectory(CFGuard)
++
++add_subdirectory(code_switch_llvmpasses)
+diff --git a/llvm/lib/Transforms/code_switch_llvmpasses/CMakeLists.txt b/llvm/lib/Transforms/code_switch_llvmpasses/CMakeLists.txt
+new file mode 100644
+index 000000000000..e2d735c44f50
+--- /dev/null
++++ b/llvm/lib/Transforms/code_switch_llvmpasses/CMakeLists.txt
+@@ -0,0 +1,5 @@
++add_subdirectory(code_version_generation)
++
++add_subdirectory(codeswitch_checkpoint_inst)
++
++add_subdirectory(helper_information_log)
+\ No newline at end of file
+diff --git a/llvm/lib/Transforms/code_switch_llvmpasses/code_version_generation/CMakeLists.txt b/llvm/lib/Transforms/code_switch_llvmpasses/code_version_generation/CMakeLists.txt
+new file mode 100644
+index 000000000000..59e4e7ae375f
+--- /dev/null
++++ b/llvm/lib/Transforms/code_switch_llvmpasses/code_version_generation/CMakeLists.txt
+@@ -0,0 +1,20 @@
++# If we don't need RTTI or EH, there's no reason to export anything
++# from the hello plugin.
++if( NOT LLVM_REQUIRES_RTTI )
++  if( NOT LLVM_REQUIRES_EH )
++    set(LLVM_EXPORTED_SYMBOL_FILE ${CMAKE_CURRENT_SOURCE_DIR}/LLVMCode_version_generation.exports)
++  endif()
++endif()
++
++if(WIN32 OR CYGWIN)
++  set(LLVM_LINK_COMPONENTS Core Support)
++endif()
++
++add_llvm_library( LLVMCode_version_generation MODULE BUILDTREE_ONLY
++  code_duplicate.cpp
++
++  DEPENDS
++  intrinsics_gen
++  PLUGIN_TOOL
++  opt
++  )
+\ No newline at end of file
+diff --git a/llvm/lib/Transforms/code_switch_llvmpasses/code_version_generation/LLVMCode_version_generation.exports b/llvm/lib/Transforms/code_switch_llvmpasses/code_version_generation/LLVMCode_version_generation.exports
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/llvm/lib/Transforms/code_switch_llvmpasses/code_version_generation/code_duplicate.cpp b/llvm/lib/Transforms/code_switch_llvmpasses/code_version_generation/code_duplicate.cpp
+new file mode 100644
+index 000000000000..21751f71a73c
+--- /dev/null
++++ b/llvm/lib/Transforms/code_switch_llvmpasses/code_version_generation/code_duplicate.cpp
+@@ -0,0 +1,75 @@
++#pragma once 
++#include <cassert>
++#include <cstdio>
++#include <fstream>
++#include <iostream>
++#include <set>
++#include <sstream>
++#include <string>
++#include <fstream>
++#include <fcntl.h>
++#include <unistd.h>
++
++
++#include "llvm/IR/Function.h"
++#include "llvm/IR/LegacyPassManager.h"
++#include "llvm/Pass.h"
++#include "llvm/Support/raw_ostream.h"
++#include "llvm/Transforms/IPO/PassManagerBuilder.h"
++#include <llvm/IR/Instructions.h>
++#include <llvm/IR/LLVMContext.h>
++#include <llvm/IR/Module.h>
++#include <llvm/Support/raw_ostream.h>
++#include <llvm/IR/IRBuilder.h>
++
++
++using namespace llvm;
++using namespace std;
++
++static cl::opt<std::string> MyArg("myarg", cl::desc("Describe the argument here"), cl::value_desc("arg"));
++
++struct Code_duplicate : public llvm::ModulePass {
++    static char ID;
++    
++    int version_id = 0;
++    Code_duplicate() : ModulePass(ID) {
++       
++    }
++    
++    //This function is used to create customized code version to deploy different security policies. As a prototype, we only simply duplicate the code.
++    void create_version(Function &F) {
++       F.setName(F.getName() + "_" + to_string(version_id)+"_version_opdfi");
++    }
++     void dfi_instrumentation(llvm::Module &M) {
++            //TODO, instrument according to the def-use pairs obtained suing SVF.
++     }
++    bool runOnModule(llvm::Module &M) {
++        // errs() << "Hello: ";
++        string argument = MyArg.getValue();
++        version_id = stoi(argument);
++
++         errs() << argument<<"th code version generated: \n";
++        for (Function &F : M.functions()) {
++            if(F.isDeclaration())
++                continue;
++            if(F.getName().startswith("opdfi"))
++                continue;
++
++            // errs() << F.getName() << "\n";
++            create_version(F);
++
++        }
++        dfi_instrumentation(M);
++        return true;
++    }
++    
++   
++   
++
++};
++
++
++char Code_duplicate::ID = 0;
++static RegisterPass<Code_duplicate> X("code_duplicate", "code duplicate Pass",
++                                     false /* Only looks at CFG */,
++                                     false /* Analysis Pass */);
+diff --git a/llvm/lib/Transforms/code_switch_llvmpasses/codeswitch_checkpoint_inst/CMakeLists.txt b/llvm/lib/Transforms/code_switch_llvmpasses/codeswitch_checkpoint_inst/CMakeLists.txt
+new file mode 100644
+index 000000000000..6cd3333bc33f
+--- /dev/null
++++ b/llvm/lib/Transforms/code_switch_llvmpasses/codeswitch_checkpoint_inst/CMakeLists.txt
+@@ -0,0 +1,20 @@
++# If we don't need RTTI or EH, there's no reason to export anything
++# from the hello plugin.
++if( NOT LLVM_REQUIRES_RTTI )
++  if( NOT LLVM_REQUIRES_EH )
++    set(LLVM_EXPORTED_SYMBOL_FILE ${CMAKE_CURRENT_SOURCE_DIR}/LLVMCodeswitch_checkpoint.exports)
++  endif()
++endif()
++
++if(WIN32 OR CYGWIN)
++  set(LLVM_LINK_COMPONENTS Core Support)
++endif()
++
++add_llvm_library( LLVMCodeswitch_checkpoint MODULE BUILDTREE_ONLY
++  checkpoint_insert.cpp
++
++  DEPENDS
++  intrinsics_gen
++  PLUGIN_TOOL
++  opt
++  )
+\ No newline at end of file
+diff --git a/llvm/lib/Transforms/code_switch_llvmpasses/codeswitch_checkpoint_inst/LLVMCodeswitch_checkpoint.exports b/llvm/lib/Transforms/code_switch_llvmpasses/codeswitch_checkpoint_inst/LLVMCodeswitch_checkpoint.exports
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/llvm/lib/Transforms/code_switch_llvmpasses/codeswitch_checkpoint_inst/checkpoint_insert.cpp b/llvm/lib/Transforms/code_switch_llvmpasses/codeswitch_checkpoint_inst/checkpoint_insert.cpp
+new file mode 100644
+index 000000000000..c140e9114adc
+--- /dev/null
++++ b/llvm/lib/Transforms/code_switch_llvmpasses/codeswitch_checkpoint_inst/checkpoint_insert.cpp
+@@ -0,0 +1,92 @@
++#pragma once 
++#include <cassert>
++#include <cstdio>
++#include <fstream>
++#include <iostream>
++#include <set>
++#include <sstream>
++#include <string>
++#include <fstream>
++#include <fcntl.h>
++#include <unistd.h>
++
++
++#include "llvm/IR/Function.h"
++#include "llvm/IR/LegacyPassManager.h"
++#include "llvm/Pass.h"
++#include "llvm/Support/raw_ostream.h"
++#include "llvm/Transforms/IPO/PassManagerBuilder.h"
++#include <llvm/IR/Instructions.h>
++#include <llvm/IR/LLVMContext.h>
++#include <llvm/IR/Module.h>
++#include <llvm/Support/raw_ostream.h>
++#include <llvm/IR/IRBuilder.h>
++
++
++#define ENTRY_FUNC "opdfi_entry"
++
++using namespace llvm;
++using namespace std;
++
++static cl::opt<std::string> MyArg("myarg", cl::desc("Describe the argument here"), cl::value_desc("arg"));
++
++
++
++std::vector<std::string> checkpoints_location = {ENTRY_FUNC};
++
++
++struct Checkpoint_insert : public llvm::ModulePass {
++    static char ID;
++    
++    int version_id = 0;
++    Checkpoint_insert() : ModulePass(ID) {
++       
++    }
++    
++    //This function is used to create customized code version to deploy different security policies. As a prototype, we only simply duplicate the code.
++  
++     
++    bool runOnModule(llvm::Module &M) {
++        // errs() << "Hello: ";
++       
++        for (Function &F : M.functions()) {
++            if(F.isDeclaration())
++                continue;
++            
++            for (BasicBlock &BB : F) {
++                for (Instruction &I : BB) {
++                    if (CallBase *CI = dyn_cast<CallBase>(&I)) {
++                        Function *Callee = CI->getCalledFunction();
++                        for (auto &checkpoint : checkpoints_location) {
++                            if (Callee && Callee->getName().startswith(checkpoint)) {
++                                llvm::IRBuilder<> ib(&I);
++                                llvm::FunctionCallee fun_slack = M.getOrInsertFunction("opdfi_slack_estimate", llvm::Type::getVoidTy(M.getContext()));
++                               ib.CreateCall(fun_slack);
++                               llvm::FunctionCallee fun_switch = M.getOrInsertFunction("opdfi_code_switching", llvm::Type::getVoidTy(M.getContext()));
++                               ib.CreateCall(fun_switch);
++                            }
++                        }
++                    }
++                }
++            }
++                
++            
++           
++            // errs() << F.getName() << "\n";
++            
++
++        }
++
++        return true;
++    }
++    
++   
++   
++
++};
++
++
++char Checkpoint_insert::ID = 0;
++static RegisterPass<Checkpoint_insert> X("cp_insert", "checkpoint insert Pass",
++                                     false /* Only looks at CFG */,
++                                     false /* Analysis Pass */);

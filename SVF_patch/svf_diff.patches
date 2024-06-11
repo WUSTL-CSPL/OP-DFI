@@ -1,0 +1,3805 @@
+diff --git a/.github/workflows/docker_publish.yml b/.github/workflows/docker_publish.yml
+deleted file mode 100644
+index fd873b48..00000000
+--- a/.github/workflows/docker_publish.yml
++++ /dev/null
+@@ -1,47 +0,0 @@
+-name: Docker
+-
+-on:
+-  push:
+-    branches: [ master ]
+-
+-jobs:
+-  docker-publish:
+-    if: github.repository == 'SVF-tools/SVF'
+-    runs-on: ubuntu-latest
+-
+-    steps:
+-     -
+-        name: Checkout 
+-        uses: actions/checkout@v2
+-     -
+-        name: Login to Docker Hub
+-        uses: docker/login-action@v1
+-        with:
+-          username: ${{secrets.DOCKER_USER}}
+-          password: ${{secrets.DOCKER_PASSWD}}
+-     -
+-        name: Set up Docker Buildx
+-        uses: docker/setup-buildx-action@v1
+-     -
+-        name: Build and push
+-        uses: docker/build-push-action@v2
+-        with:
+-          context: .
+-          file: ./Dockerfile
+-          push: true
+-          tags: ${{secrets.DOCKER_USER}}/svf:latest
+-          
+-  dispatch:
+-      needs: docker-publish
+-      runs-on: ubuntu-latest
+-      strategy: 
+-        matrix:
+-          repo: ['SVF-tools/Teaching-Software-Analysis','SVF-tools/SVF-example','SVF-tools/Teaching-Software-Verification']
+-      steps:
+-      -
+-        name: dispatch
+-        uses: peter-evans/repository-dispatch@v1
+-        with:
+-          token: ${{ secrets.yulei_git_key }}
+-          repository: ${{ matrix.repo }}
+-          event-type: new-commit-from-SVF
+diff --git a/.github/workflows/github-action.yml b/.github/workflows/github-action.yml
+deleted file mode 100644
+index 50394fce..00000000
+--- a/.github/workflows/github-action.yml
++++ /dev/null
+@@ -1,110 +0,0 @@
+-name: svf-build
+-
+-# Triggers the workflow on push or pull request events
+-on: [push, pull_request]
+-
+-# Customize the env variable
+-env:
+-  SVF_CTIR: 1 
+-  SVF_Z3: 1
+-  SVF_DIR: $GITHUB_WORKSPACE
+-
+-jobs:
+-  build:
+-    runs-on: ${{ matrix.os }}
+-    strategy:
+-      matrix:
+-        os: [ubuntu-18.04, macos-11]
+-    steps:
+-      # checkout the repo
+-      - uses: actions/checkout@v2
+-      # setup the environment
+-      - name: mac-setup
+-        if: runner.os == 'macOS'
+-        uses: maxim-lobanov/setup-xcode@v1
+-        with:
+-          xcode-version: 12.5.1
+-      - name: mac-setup-workaround
+-        if: runner.os == 'macOS'
+-        run: ln -sfn /Applications/Xcode_12.5.1.app /Applications/Xcode.app
+-      - name: ubuntu-setup
+-        if: runner.os == 'Linux'
+-        run: |
+-          sudo apt-get update
+-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+-          sudo apt-get update
+-          sudo apt-get install cmake gcc g++ nodejs doxygen graphviz lcov
+-      
+-      # build-svf
+-      - name: build-svf
+-        run: |
+-          cd $GITHUB_WORKSPACE
+-          echo $(pwd)
+-          if [ "$RUNNER_OS" == "Linux" ]; then sed -i "s/-fno-rtti/-fno-rtti -fprofile-arcs -ftest-coverage/g" CMakeLists.txt; fi
+-          git clone "https://github.com/SVF-tools/Test-Suite.git";
+-          source ${{github.workspace}}/build.sh
+-      # run ctest
+-      # run ctest
+-      - name: ctest wpa
+-        working-directory: ${{github.workspace}}/Release-build
+-        run: 
+-          ctest -R wpa_tests -VV
+- 
+-      - name: ctest dvf and mta
+-        working-directory: ${{github.workspace}}/Release-build
+-        run: 
+-          ctest -R dvf_tests -VV
+-
+-      - name: ctest andersen differential analysis
+-        working-directory: ${{github.workspace}}/Release-build
+-        run: 
+-          ctest -R diff_tests-ander -VV
+-
+-      - name: ctest flow-sensitive differential analysis
+-        working-directory: ${{github.workspace}}/Release-build
+-        run: 
+-          ctest -R diff_tests-fs -VV
+-
+-      - name: ctest Andersen file-write-read 
+-        working-directory: ${{github.workspace}}/Release-build
+-        run: 
+-          ctest -R diff_tests-wr-ander -VV
+-
+-      - name: ctest mem_leak
+-        working-directory: ${{github.workspace}}/Release-build
+-        run:
+-          ctest -R mem_leak -VV
+-
+-      - name: ctest double_free
+-        working-directory: ${{github.workspace}}/Release-build
+-        run:
+-          ctest -R double_free -VV
+-
+-      - name: ctest cfl_tests
+-        working-directory: ${{github.workspace}}/Release-build
+-        run: 
+-          ctest -R cfl_tests -VV
+-          
+-      - name: ctest performance tests on cruxbc
+-        working-directory: ${{github.workspace}}/Release-build
+-        if: runner.os == 'Linux'
+-        run: 
+-          ctest -R diff-perf-cruxbc -VV
+-
+-      - name: create-coverage-report-and-remove-system-files
+-        working-directory: ${{github.workspace}}/Release-build
+-        if: runner.os == 'Linux'
+-        run: | 
+-          lcov --capture --directory ./ --output-file coverage.info
+-          lcov --remove coverage.info '/usr/*' --output-file coverage.info
+-          lcov --remove coverage.info '${{github.workspace}}/z3.obj/*' --output-file coverage.info
+-          lcov --remove coverage.info '${{github.workspace}}/llvm-13.0.0.obj/*' --output-file coverage.info
+-          lcov --remove coverage.info '${{github.workspace}}/include/FastCluster/*' --output-file coverage.info
+-          lcov --remove coverage.info '${{github.workspace}}/lib/FastCluster/*' --output-file coverage.info
+-      
+-      - name: upload-coverage
+-        if: runner.os == 'Linux'
+-        uses: codecov/codecov-action@v2
+-        with:
+-          files: coverage.info
+-          verbose: true
+\ No newline at end of file
+diff --git a/.github/workflows/svf-lib_publish.yml b/.github/workflows/svf-lib_publish.yml
+deleted file mode 100644
+index b5593a9e..00000000
+--- a/.github/workflows/svf-lib_publish.yml
++++ /dev/null
+@@ -1,148 +0,0 @@
+-name: svf-publish
+-
+-# Triggers the publish workflow only on master
+-on:
+-  push:
+-    branches: [ master ]
+-
+-# Customize the env variable
+-env:
+-  SVF_CTIR: 1 
+-  SVF_Z3: 1
+-  SVF_DIR: $GITHUB_WORKSPACE
+-
+-jobs:
+-  publish:
+-    if: github.repository == 'SVF-tools/SVF'
+-    runs-on: ${{ matrix.os }}
+-    strategy:
+-      matrix:
+-        os: [ubuntu-18.04, macos-11]
+-    steps:
+-      # checkout the repo
+-      - uses: actions/checkout@v2
+-      # setup the environment
+-      - name: mac-setup
+-        if: runner.os == 'macOS'
+-        uses: maxim-lobanov/setup-xcode@v1
+-        with:
+-          xcode-version: 12.5.1
+-      - name: mac-setup-workaround
+-        if: runner.os == 'macOS'
+-        run: |
+-          ln -sfn /Applications/Xcode_12.5.1.app /Applications/Xcode.app
+-          brew install astyle
+-      - name: ubuntu-setup
+-        if: runner.os == 'Linux'
+-        run: |
+-          sudo apt-get update
+-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+-          sudo apt-get update
+-          sudo apt-get install cmake gcc g++ nodejs doxygen graphviz
+-          sudo apt-get update
+-          sudo apt-get install -y astyle
+-      - name: env-setup
+-        if: github.event_name == 'push' && github.repository == 'SVF-tools/SVF'
+-        run: |
+-          echo $RUNNER_OS
+-          git config --global user.email ${{secrets.npm_email}}
+-          git config --global user.name "GitHub Actions Build"
+-      
+-      # code-format and build-svf
+-      - name: code-format-and-build-svf
+-        run: |
+-          cd $GITHUB_WORKSPACE
+-          echo $(pwd)
+-          astyle --style=allman -n -r "*.h" "*.cpp"
+-          echo $(pwd)
+-          git clone "https://github.com/SVF-tools/Test-Suite.git";
+-          source ${{github.workspace}}/build.sh
+-
+-      # update formatting code and doxygen
+-      - name: update-formatting-code-and-doxygen
+-        if: |
+-            github.event_name == 'push' && 
+-            github.repository == 'SVF-tools/SVF' && 
+-            runner.os == 'Linux' &&
+-            github.ref == 'refs/heads/master'
+-        run: |
+-            cd $GITHUB_WORKSPACE
+-            echo $(pwd)
+-            git status
+-            git add .
+-            git status
+-            if [ -n "$(git status -s)" ]; then git commit -m"SVF code formatter"; fi
+-            git push https://yuleisui:${{secrets.yulei_git_key}}@github.com/SVF-tools/SVF.git   HEAD:master
+-            cd $GITHUB_WORKSPACE/docs && doxygen doxygen.config
+-            cd $GITHUB_WORKSPACE  && git clone https://github.com/SVF-tools/SVF-doxygen.git       
+-            cp -r $GITHUB_WORKSPACE/docs/generated-doc/html $GITHUB_WORKSPACE/SVF-doxygen/html       
+-            cd $GITHUB_WORKSPACE/SVF-doxygen       
+-            git add .       
+-            if [ -n "$(git status -s)" ]; then git commit -m"update SVF doxygen"       ; fi
+-            git push https://yuleisui:${{secrets.yulei_git_key}}@github.com/SVF-tools/SVF-doxygen.git   HEAD:master       
+-          
+-      # update performance testing to Test-Suite
+-      - name: upload-performance-testing-to-Test-Suite
+-        working-directory: ${{github.workspace}}/Release-build
+-        if: |
+-            github.event_name == 'push' && 
+-            github.repository == 'SVF-tools/SVF' && 
+-            runner.os == 'Linux' &&
+-            github.ref == 'refs/heads/master'
+-        run: |
+-            ctest -R diff-perf-cruxbc -VV
+-            git pull
+-            cp -r ${{github.workspace}}/Release-build/Testing/Temporary/LastTest.log $GITHUB_WORKSPACE/Test-Suite/diff_tests/perf_history/perf-$(date +'%Y-%m-%dT%H:%M:%S').txt
+-            cp -r ${{github.workspace}}/Release-build/Testing/Temporary/LastTest.log $GITHUB_WORKSPACE/Test-Suite/diff_tests/perf-latest.txt
+-            cd $GITHUB_WORKSPACE/Test-Suite/diff_tests  
+-            git add .     
+-            if [ -n "$(git status -s)" ]; then git commit -m"update latest SVF performance data"       ; fi
+-            git push https://yuleisui:${{secrets.yulei_git_key}}@github.com/SVF-tools/Test-Suite.git   HEAD:master   
+-
+-      # update-svf-lib
+-      - name: update-svf-lib
+-        if: |
+-            github.event_name == 'push' && 
+-            github.repository == 'SVF-tools/SVF' && 
+-            github.ref == 'refs/heads/master'
+-        run: |
+-            cd $GITHUB_WORKSPACE        
+-            cd ..     
+-            git clone https://github.com/SVF-tools/SVF-npm.git
+-            if [ "$RUNNER_OS" == "Linux" ]; then export osVersion="linux"; fi
+-            if [ "$RUNNER_OS" == "macOS" ]; then export osVersion="osx"; fi
+-            echo $osVersion  
+-            cd ./SVF-npm
+-            git fetch origin
+-            git rebase origin/master
+-            cp -rf $GITHUB_WORKSPACE/include ./SVF-${osVersion}/       
+-            cp $GITHUB_WORKSPACE/Release-build/lib/libSvf.a ./SVF-${osVersion}/Release-build/lib        
+-            git add .      
+-            if [ -n "$(git status -s)" ]; then git commit -m'update svflib' ; fi
+-            npm version patch     
+-            git push https://yuleisui:${{secrets.yulei_git_key}}@github.com/SVF-tools/SVF-npm.git   HEAD:master
+-            cd $GITHUB_WORKSPACE      
+-          
+-      # publish svf
+-      - uses: actions/setup-node@v2
+-        with:
+-          node-version: 12
+-          registry-url: https://registry.npmjs.org/
+-      - name: publish-svf
+-        if: |
+-            github.event_name == 'push' && 
+-            github.repository == 'SVF-tools/SVF' && 
+-            runner.os == 'Linux' &&
+-            github.ref == 'refs/heads/master'     
+-        run: |
+-          cd $GITHUB_WORKSPACE
+-          echo $(pwd)
+-          git stash --all 
+-          npm_version=`npm v svf-tools version`  
+-          sed  -i '/version/s/[^:]*$/'"\"${npm_version}\",/" package.json
+-          git add . 
+-          if [ -n "$(git status -s)" ]; then git commit -m'update version'  ; fi
+-          npm version patch
+-          npm publish
+-        env:
+-          NODE_AUTH_TOKEN: ${{secrets.npm_token}}
+diff --git a/.gitignore b/.gitignore
+index a20d08a6..d80a2cfe 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,24 +1,5 @@
+-Release*/
+-Debug*/
+-build/
+-include/Util/config.h
+-html/
+-Test-Suite/
+-Release+Asserts/
+-Debug+Asserts/
+-autoconf/
+-tests/result/
+-doxygen/
+-.*
+-!.gitignore
+-*~
+-*.o
+-*.out
++Release-build/
+ *.ll
+ *.bc
+-*.opt
+-*.log
+-*.status
+-*.obj
+-*.svf
+-cmake-build-debug/
++z3.obj/
++svf_result/
+\ No newline at end of file
+diff --git a/.vscode/settings.json b/.vscode/settings.json
+new file mode 100644
+index 00000000..dcc5bc11
+--- /dev/null
++++ b/.vscode/settings.json
+@@ -0,0 +1,6 @@
++{
++    "files.associations": {
++        "*.inc": "cpp",
++        "*.tcc": "cpp"
++    }
++}
+\ No newline at end of file
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index e3093454..0cbc977b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -20,7 +20,8 @@ if(NOT COMMAND add_llvm_library)
+         # add -std=gnu++14
+         set(CMAKE_CXX_EXTENSIONS ON)
+ 
+-        set(COMMON_FLAGS "-fPIC -Werror -Wall")
++        #set(COMMON_FLAGS "-fPIC -Werror -Wall")
++        set(COMMON_FLAGS "-fPIC -Wall")
+ 
+         if(CMAKE_BUILD_TYPE MATCHES "Debug")
+             set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${COMMON_FLAGS} -O0 -fno-rtti")
+diff --git a/README.md b/README.md
+deleted file mode 100644
+index 96f34b48..00000000
+--- a/README.md
++++ /dev/null
+@@ -1,72 +0,0 @@
+-## News
+-* <b>SVF now supports LLVM-13.0.0 (Thank [Shengjie Xu](https://github.com/xushengj) for his help!). </b>
+-* <b>[Object clustering](https://github.com/SVF-tools/SVF/wiki/Object-Clustering) published in our [OOPSLA paper](https://yuleisui.github.io/publications/oopsla21.pdf) is now available in SVF </b>
+-* <b>[Hash-Consed Points-To Sets](https://github.com/SVF-tools/SVF/wiki/Hash-Consed-Points-To-Sets) published in our [SAS paper](https://yuleisui.github.io/publications/sas21.pdf) is now available in SVF </b>
+-* <b> Learning or teaching Software Analysis? Check out [SVF-Teaching](https://github.com/SVF-tools/SVF-Teaching)! </b>
+-* <b>SVF now supports LLVM-12.0.0 (Thank [Xiyu Yang](https://github.com/sherlly/) for her help!). </b>
+-* <b>[VSFS](https://github.com/SVF-tools/SVF/wiki/VSFS) published in our [CGO paper](https://yuleisui.github.io/publications/cgo21.pdf) is now available in SVF </b>
+-* <b>[TypeClone](https://github.com/SVF-tools/SVF/wiki/TypeClone) published in our [ECOOP paper](https://yuleisui.github.io/publications/ecoop20.pdf) is now available in SVF </b>
+-* <b>SVF now uses a single script for its build. Just type [`source ./build.sh`](https://github.com/SVF-tools/SVF/blob/master/build.sh) in your terminal, that's it!</b>
+-* <b>SVF now supports LLVM-10.0.0! </b>
+-* <b>We thank [bsauce](https://github.com/bsauce) for writing a user manual of SVF ([link1](https://www.jianshu.com/p/068a08ec749c) and [link2](https://www.jianshu.com/p/777c30d4240e)) in Chinese </b>
+-* <b>SVF now supports LLVM-9.0.0 (Thank [Byoungyoung Lee](https://github.com/SVF-tools/SVF/issues/142) for his help!). </b>
+-* <b>SVF now supports a set of [field-sensitive pointer analyses](https://yuleisui.github.io/publications/sas2019a.pdf). </b>
+-* <b>[Use SVF as an external lib](https://github.com/SVF-tools/SVF/wiki/Using-SVF-as-a-lib-in-your-own-tool) for your own project (Contributed by [Hongxu Chen](https://github.com/HongxuChen)). </b>
+-* <b>SVF now supports LLVM-7.0.0. </b>
+-* <b>SVF now supports Docker. [Try SVF in Docker](https://github.com/SVF-tools/SVF/wiki/Try-SVF-in-Docker)! </b>
+-* <b>SVF now supports [LLVM-6.0.0](https://github.com/svf-tools/SVF/pull/38) (Contributed by [Jack Anthony](https://github.com/jackanth)). </b>
+-* <b>SVF now supports [LLVM-4.0.0](https://github.com/svf-tools/SVF/pull/23) (Contributed by Jared Carlson. Thank [Jared](https://github.com/jcarlson23) and [Will](https://github.com/dtzWill) for their in-depth [discussions](https://github.com/svf-tools/SVF/pull/18) about updating SVF!) </b>
+-* <b>SVF now supports analysis for C++ programs.</b>
+-<br />
+-
+-## Documentation
+-
+-<b>SVF</b> is a static value-flow analysis tool for LLVM-based languages. <b>SVF</b> ([CC'16](https://yuleisui.github.io/publications/cc16.pdf)) is able to perform
+-* [WPA](https://github.com/SVF-tools/SVF/tree/master/include/WPA) (<b>whole program analysis</b>): field-sensitive ([SAS'19](https://yuleisui.github.io/publications/sas2019a.pdf)), flow-sensitive ([CGO'21](https://yuleisui.github.io/publications/cgo21.pdf), [OOPSLA'21](https://yuleisui.github.io/publications/oopsla21.pdf)) analysis;
+-* [DDA](https://github.com/SVF-tools/SVF/tree/master/include/DDA) (<b>demand-driven analysis</b>): flow-sensitive, context-sensitive points-to analysis ([FSE'16](https://yuleisui.github.io/publications/fse16.pdf), [TSE'18](https://yuleisui.github.io/publications/tse18.pdf));
+-* [MSSA](https://github.com/SVF-tools/SVF/tree/master/include/MSSA) (<b>memory SSA form construction</b>): memory regions, side-effects, SSA form ([JSS'18](https://yuleisui.github.io/publications/jss18.pdf));
+-* [SABER](https://github.com/SVF-tools/SVF/tree/master/include/SABER) (<b>memory error checking</b>): memory leaks and double-frees ([ISSTA'12](https://yuleisui.github.io/publications/issta12.pdf), [TSE'14](https://yuleisui.github.io/publications/tse14.pdf), [ICSE'18](https://yuleisui.github.io/publications/icse18a.pdf));
+-* [MTA](https://github.com/SVF-tools/SVF/tree/master/include/MTA) (<b>analysis of mutithreaded programs</b>): value-flows for multithreaded programs ([CGO'16](https://yuleisui.github.io/publications/cgo16.pdf));
+-* [CFL](https://github.com/SVF-tools/SVF/tree/master/include/CFL) (<b>context-free-reachability analysis</b>): standard CFL solver, graph and grammar ([OOPSLA'22](https://yuleisui.github.io/publications/oopsla22.pdf));
+-* [MemoryModel](https://github.com/SVF-tools/SVF/tree/master/include/MemoryModel) (<b>memory abstraction</b>): SVFIR and points-to data structures ([SAS'21](https://yuleisui.github.io/publications/sas21.pdf));
+-* [Graphs](https://github.com/SVF-tools/SVF/tree/master/include/Graphs): <b> generating a variety of graphs</b>, including call graph, ICFG, class hirachary graph, constraint graph, value-flow graph for static analyses and code embedding ([OOPSLA'20](https://yuleisui.github.io/publications/oopsla20.pdf), [TOSEM'21](https://yuleisui.github.io/publications/tosem21.pdf))
+-
+-<b>SVF</b>'s doxygen document is available [here](https://svf-tools.github.io/SVF-doxygen/html).
+-
+-<br />
+-
+-| About SVF       | Setup  Guide         | User Guide  | Developer Guide  |
+-| ------------- |:-------------:| -----:|-----:|
+-| ![About](https://github.com/svf-tools/SVF/blob/master/docs/images/help.png?raw=true)| ![Setup](https://github.com/svf-tools/SVF/blob/master/docs/images/tools.png?raw=true)  | ![User](https://github.com/svf-tools/SVF/blob/master/docs/images/users.png?raw=true)  |  ![Developer](https://github.com/svf-tools/SVF/blob/master/docs/images/database.png?raw=true) 
+-| Introducing SVF -- [what it does](https://github.com/svf-tools/SVF/wiki/About#what-is-svf) and [how we design it](https://github.com/svf-tools/SVF/wiki/SVF-Design#svf-design)      | A step by step [setup guide](https://github.com/svf-tools/SVF/wiki/Setup-Guide#getting-started) to build SVF | Command-line options to [run SVF](https://github.com/svf-tools/SVF/wiki/User-Guide#quick-start), get [analysis outputs](https://github.com/svf-tools/SVF/wiki/User-Guide#analysis-outputs), and test SVF with [an example](https://github.com/svf-tools/SVF/wiki/Analyze-a-Simple-C-Program) or [PTABen](https://github.com/SVF-tools/PTABen) | Detailed [technical documentation](https://github.com/svf-tools/SVF/wiki/Technical-documentation) and how to [write your own analyses](https://github.com/svf-tools/SVF/wiki/Write-your-own-analysis-in-SVF) in SVF or [use SVF as a lib](https://github.com/SVF-tools/SVF-example) for your tool  |
+-
+-<br />
+-
+-#### We are looking for self-motivated PhD students and we welcome industry collaboration/sponsorship to improve SVF (Please contact yulei.sui@uts.edu.au if you are interested)
+-
+-<br />
+-<p>We release SVF source code in the hope of benefiting others. You are kindly asked to acknowledge usage of the tool by citing some of our publications listed http://svf-tools.github.io/SVF, especially the following two: </p>
+-
+-```
+-@inproceedings{sui2016svf,
+-  title={SVF: interprocedural static value-flow analysis in LLVM},
+-  author={Sui, Yulei and Xue, Jingling},
+-  booktitle={Proceedings of the 25th international conference on compiler construction},
+-  pages={265--266},
+-  year={2016},
+-  organization={ACM}
+-}
+-```
+-
+-```
+-@article{sui2014detecting,
+-  title={Detecting memory leaks statically with full-sparse value-flow analysis},
+-  author={Sui, Yulei and Ye, Ding and Xue, Jingling},
+-  journal={IEEE Transactions on Software Engineering},
+-  volume={40},
+-  number={2},
+-  pages={107--122},
+-  year={2014},
+-  publisher={IEEE}
+-}
+-```
+diff --git a/docs/.gitignore b/docs/.gitignore
+deleted file mode 100644
+index 374c667e..00000000
+--- a/docs/.gitignore
++++ /dev/null
+@@ -1 +0,0 @@
+-generated-doc
+diff --git a/docs/stylesheets/github-light.css b/docs/stylesheets/github-light.css
+deleted file mode 100644
+index 872a6f4b..00000000
+--- a/docs/stylesheets/github-light.css
++++ /dev/null
+@@ -1,116 +0,0 @@
+-/*
+-   Copyright 2014 GitHub Inc.
+-
+-   Licensed under the Apache License, Version 2.0 (the "License");
+-   you may not use this file except in compliance with the License.
+-   You may obtain a copy of the License at
+-
+-       http://www.apache.org/licenses/LICENSE-2.0
+-
+-   Unless required by applicable law or agreed to in writing, software
+-   distributed under the License is distributed on an "AS IS" BASIS,
+-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-   See the License for the specific language governing permissions and
+-   limitations under the License.
+-
+-*/
+-
+-.pl-c /* comment */ {
+-  color: #969896;
+-}
+-
+-.pl-c1      /* constant, markup.raw, meta.diff.header, meta.module-reference, meta.property-name, support, support.constant, support.variable, variable.other.constant */,
+-.pl-s .pl-v /* string variable */ {
+-  color: #0086b3;
+-}
+-
+-.pl-e  /* entity */,
+-.pl-en /* entity.name */ {
+-  color: #795da3;
+-}
+-
+-.pl-s .pl-s1 /* string source */,
+-.pl-smi      /* storage.modifier.import, storage.modifier.package, storage.type.java, variable.other, variable.parameter.function */ {
+-  color: #333;
+-}
+-
+-.pl-ent /* entity.name.tag */ {
+-  color: #63a35c;
+-}
+-
+-.pl-k /* keyword, storage, storage.type */ {
+-  color: #a71d5d;
+-}
+-
+-.pl-pds              /* punctuation.definition.string, string.regexp.character-class */,
+-.pl-s                /* string */,
+-.pl-s .pl-pse .pl-s1 /* string punctuation.section.embedded source */,
+-.pl-sr               /* string.regexp */,
+-.pl-sr .pl-cce       /* string.regexp constant.character.escape */,
+-.pl-sr .pl-sra       /* string.regexp string.regexp.arbitrary-repitition */,
+-.pl-sr .pl-sre       /* string.regexp source.ruby.embedded */ {
+-  color: #183691;
+-}
+-
+-.pl-v /* variable */ {
+-  color: #ed6a43;
+-}
+-
+-.pl-id /* invalid.deprecated */ {
+-  color: #b52a1d;
+-}
+-
+-.pl-ii /* invalid.illegal */ {
+-  background-color: #b52a1d;
+-  color: #f8f8f8;
+-}
+-
+-.pl-sr .pl-cce /* string.regexp constant.character.escape */ {
+-  color: #63a35c;
+-  font-weight: bold;
+-}
+-
+-.pl-ml /* markup.list */ {
+-  color: #693a17;
+-}
+-
+-.pl-mh        /* markup.heading */,
+-.pl-mh .pl-en /* markup.heading entity.name */,
+-.pl-ms        /* meta.separator */ {
+-  color: #1d3e81;
+-  font-weight: bold;
+-}
+-
+-.pl-mq /* markup.quote */ {
+-  color: #008080;
+-}
+-
+-.pl-mi /* markup.italic */ {
+-  color: #333;
+-  font-style: italic;
+-}
+-
+-.pl-mb /* markup.bold */ {
+-  color: #333;
+-  font-weight: bold;
+-}
+-
+-.pl-md /* markup.deleted, meta.diff.header.from-file */ {
+-  background-color: #ffecec;
+-  color: #bd2c00;
+-}
+-
+-.pl-mi1 /* markup.inserted, meta.diff.header.to-file */ {
+-  background-color: #eaffea;
+-  color: #55a532;
+-}
+-
+-.pl-mdr /* meta.diff.range */ {
+-  color: #795da3;
+-  font-weight: bold;
+-}
+-
+-.pl-mo /* meta.output */ {
+-  color: #1d3e81;
+-}
+-
+diff --git a/include/CFL/CFLVF.h b/include/CFL/CFLVF.h
+index a2aea8ca..923abf9c 100644
+--- a/include/CFL/CFLVF.h
++++ b/include/CFL/CFLVF.h
+@@ -55,6 +55,11 @@ public:
+     /// Build CFLGraph via VFG
+     void buildCFLGraph();
+ 
++     virtual inline SVFG* getSvfg() const //opdfi_added
++    {
++        return svfg;
++    }
++    void buildSVFGraph();
+ private:
+     SaberSVFGBuilder memSSA;
+     SVFG* svfg;
+diff --git a/include/DDA/DDAPass.h b/include/DDA/DDAPass.h
+index 8837549c..cc969e36 100644
+--- a/include/DDA/DDAPass.h
++++ b/include/DDA/DDAPass.h
+@@ -74,6 +74,11 @@ public:
+         return "DDAPass";
+     }
+ 
++    virtual inline PointerAnalysis* getCurrentPta() const //opdfi_added
++    {
++        return _pta;
++    }
++
+ private:
+     /// Print queries' pts
+     void printQueryPTS();
+diff --git a/include/Graphs/PTACallGraph.h b/include/Graphs/PTACallGraph.h
+index 0226c99c..d41c33d9 100644
+--- a/include/Graphs/PTACallGraph.h
++++ b/include/Graphs/PTACallGraph.h
+@@ -435,7 +435,7 @@ public:
+ 
+     /// Whether its reachable between two functions
+     bool isReachableBetweenFunctions(const SVFFunction* srcFn, const SVFFunction* dstFn) const;
+-
++    Set<SVFFunction*>  getReachableFunctions(SVFFunction* dstFn) ;
+     /// Dump the graph
+     void dump(const std::string& filename);
+ 
+diff --git a/include/Graphs/SVFG.h b/include/Graphs/SVFG.h
+index af827c1e..8886c44b 100644
+--- a/include/Graphs/SVFG.h
++++ b/include/Graphs/SVFG.h
+@@ -173,6 +173,11 @@ public:
+         return getSVFGNode(getDef(pagNode));
+     }
+ 
++    inline bool hasDefSVFGNode(const PAGNode* pagNode) const
++    {
++        return VFG::hasDef(pagNode);
++    }
++
+     /// Perform statistics
+     void performStat();
+ 
+diff --git a/include/Graphs/VFG.h b/include/Graphs/VFG.h
+index a3b860d7..907c58f9 100644
+--- a/include/Graphs/VFG.h
++++ b/include/Graphs/VFG.h
+@@ -202,6 +202,15 @@ public:
+         assert(it != PAGEdgeToStmtVFGNodeMap.end() && "StmtVFGNode can not be found??");
+         return it->second;
+     }
++
++    inline bool hasStmtVFGNode(const PAGEdge* pagEdge) const
++    {
++        PAGEdgeToStmtVFGNodeMapTy::const_iterator it = PAGEdgeToStmtVFGNodeMap.find(pagEdge);
++        return it != PAGEdgeToStmtVFGNodeMap.end();
++        // assert(it != PAGEdgeToStmtVFGNodeMap.end() && "StmtVFGNode can not be found??");
++        // return it->second;
++    }
++
+     inline IntraPHIVFGNode* getIntraPHIVFGNode(const PAGNode* pagNode) const
+     {
+         PAGNodeToPHIVFGNodeMapTy::const_iterator it = PAGNodeToIntraPHIVFGNodeMap.find(pagNode);
+diff --git a/include/Util/config.h b/include/Util/config.h
+new file mode 100644
+index 00000000..2c103bc7
+--- /dev/null
++++ b/include/Util/config.h
+@@ -0,0 +1,6 @@
++#ifndef CONFIG_H_IN
++#define CONFIG_H_IN
++
++#define PROJECT_PATH "/home/opdfi/toolchain/SVF"
++
++#endif
+diff --git a/include/WPA/WPAPass.h b/include/WPA/WPAPass.h
+index 36b9eaca..d4b72a84 100644
+--- a/include/WPA/WPAPass.h
++++ b/include/WPA/WPAPass.h
+@@ -105,6 +105,11 @@ public:
+         return "WPAPass";
+     }
+ 
++    virtual inline PointerAnalysis* getCurrentPta() const //opdfi_added
++    {
++        return _pta;
++    }
++
+ private:
+     /// Create pointer analysis according to specified kind and analyze the module.
+     void runPointerAnalysis(SVFModule* svfModule, u32_t kind);
+diff --git a/lib/CFL/CFLVF.cpp b/lib/CFL/CFLVF.cpp
+index 5a08d88c..ac386720 100644
+--- a/lib/CFL/CFLVF.cpp
++++ b/lib/CFL/CFLVF.cpp
+@@ -33,6 +33,12 @@ using namespace SVF;
+ using namespace cppUtil;
+ using namespace SVFUtil;
+ 
++  void  CFLVF::buildSVFGraph(){
++    PointerAnalysis::initialize();
++        AndersenWaveDiff* ander = AndersenWaveDiff::createAndersenWaveDiff(pag);
++        svfg =  memSSA.buildFullSVFG(ander);
++  }
++
+ void CFLVF::buildCFLGraph()
+ {
+     // Build CFL Graph
+diff --git a/lib/Graphs/PTACallGraph.cpp b/lib/Graphs/PTACallGraph.cpp
+index b8d5067a..fecf2bf9 100644
+--- a/lib/Graphs/PTACallGraph.cpp
++++ b/lib/Graphs/PTACallGraph.cpp
+@@ -7,7 +7,7 @@
+ 
+ // This program is free software: you can redistribute it and/or modify
+ // it under the terms of the GNU General Public License as published by
+-// the Free Software Foundation, either version 3 of the License, or
++// the Free Software Foundation, eitmer version 3 of the License, or
+ // (at your option) any later version.
+ 
+ // This program is distributed in the hope that it will be useful,
+@@ -310,11 +310,46 @@ bool PTACallGraph::isReachableBetweenFunctions(const SVFFunction* srcFn, const S
+     return false;
+ }
+ 
++Set<SVFFunction*>  PTACallGraph::getReachableFunctions(SVFFunction* dstFn) //added by opdfi
++{
++    PTACallGraphNode* dstNode = getCallGraphNode(dstFn);
++
++    std::stack<const PTACallGraphNode*> nodeStack;
++    NodeBS visitedNodes;
++    nodeStack.push(dstNode);
++    visitedNodes.set(dstNode->getId());
++
++    Set<SVFFunction*> reachable;
++    reachable.insert(dstFn);
++    while (nodeStack.empty() == false)
++    {
++        PTACallGraphNode* node = const_cast<PTACallGraphNode*>(nodeStack.top());
++        nodeStack.pop();
++
++        // if (node->getFunction() == srcFn)
++        //     return true;
++
++        for (CallGraphEdgeConstIter it = node->InEdgeBegin(), eit = node->InEdgeEnd(); it != eit; ++it)
++        {
++            PTACallGraphEdge* edge = *it;
++            if (visitedNodes.test_and_set(edge->getSrcID()))
++                nodeStack.push(edge->getSrcNode());
++                PTACallGraphNode* snode=edge->getSrcNode();
++
++                reachable.insert((SVFFunction*)snode->getFunction());
++        }
++    }
++
++    return reachable;
++}
+ /*!
+  * Dump call graph into dot file
+  */
+ void PTACallGraph::dump(const std::string& filename)
+ {
++    // Calculating the timing flows
++
++
+     GraphPrinter::WriteGraphToFile(outs(), filename, this);
+ }
+ 
+diff --git a/lib/MemoryModel/SVFIR.cpp b/lib/MemoryModel/SVFIR.cpp
+index 9a08b398..67d756d5 100644
+--- a/lib/MemoryModel/SVFIR.cpp
++++ b/lib/MemoryModel/SVFIR.cpp
+@@ -162,6 +162,7 @@ BinaryOPStmt* SVFIR::addBinaryOPStmt(NodeID op1, NodeID op2, NodeID dst, u32_t o
+         BinaryOPStmt* binaryOP = new BinaryOPStmt(dstNode, opnds, opcode);
+         addToStmt2TypeMap(binaryOP);
+         addEdge(op1Node,dstNode, binaryOP);
++        addEdge(op2Node,dstNode, binaryOP);//opdfi_added
+         return binaryOP;
+     }
+ }
+diff --git a/lib/SVF-FE/LLVMModule.cpp b/lib/SVF-FE/LLVMModule.cpp
+index 9bea687b..c2ffa5c3 100644
+--- a/lib/SVF-FE/LLVMModule.cpp
++++ b/lib/SVF-FE/LLVMModule.cpp
+@@ -90,6 +90,10 @@ SVFModule* LLVMModuleSet::buildSVFModule(const std::vector<std::string> &moduleN
+ 
+     loadModules(moduleNameVec);
+ 
++    for (unsigned int i = 0; i < moduleNameVec.size(); i++) {
++        std::cout << "The Module Path: " <<  moduleNameVec[i] << std::endl;
++    }
++
+     if(!moduleNameVec.empty())
+         svfModule = new SVFModule(*moduleNameVec.begin());
+     else
+diff --git a/linked b/linked
+new file mode 100755
+index 00000000..8efb262f
+Binary files /dev/null and b/linked differ
+diff --git a/tools/CFL/cfl.cpp b/tools/CFL/cfl.cpp
+index e1b13180..d4de76f7 100644
+--- a/tools/CFL/cfl.cpp
++++ b/tools/CFL/cfl.cpp
+@@ -71,11 +71,11 @@ int main(int argc, char ** argv)
+     else
+         cfl = new CFLAlias(svfir); // if no svfg is specified, we use CFLAlias as the default one.
+     cfl->analyze();
+-
++     errs()<<"here 2\n";
+     delete cfl;
+     SVFIR::releaseSVFIR();
+     SVF::LLVMModuleSet::releaseLLVMModuleSet();
+-
++    errs()<<"here 3\n";
+     return 0;
+ 
+ }
+diff --git a/tools/CMakeLists.txt b/tools/CMakeLists.txt
+index 8286d28c..00596a91 100644
+--- a/tools/CMakeLists.txt
++++ b/tools/CMakeLists.txt
+@@ -3,4 +3,5 @@ add_subdirectory(WPA)
+ add_subdirectory(Example)
+ add_subdirectory(DDA)
+ add_subdirectory(MTA)
+-add_subdirectory(CFL)
+\ No newline at end of file
++add_subdirectory(CFL)
++add_subdirectory(OPDFI)
+\ No newline at end of file
+diff --git a/tools/DDA/dda.cpp b/tools/DDA/dda.cpp
+index 83da291c..1a5feb39 100644
+--- a/tools/DDA/dda.cpp
++++ b/tools/DDA/dda.cpp
+@@ -51,6 +51,9 @@ int main(int argc, char ** argv)
+     cl::ParseCommandLineOptions(arg_num, arg_value,
+                                 "Demand-Driven Points-to Analysis\n");
+ 
++    for(int i=0;i<arg_num;i++){
++        errs()<<"  ~~~~~~"<<arg_value[i]<<":~~\n";
++    }
+     if (Options::WriteAnder == "ir_annotator")
+     {
+         LLVMModuleSet::getLLVMModuleSet()->preProcessBCs(moduleNameVec);
+diff --git a/tools/OPDFI/CMakeFiles/CMakeDirectoryInformation.cmake b/tools/OPDFI/CMakeFiles/CMakeDirectoryInformation.cmake
+new file mode 100644
+index 00000000..c096f1ec
+--- /dev/null
++++ b/tools/OPDFI/CMakeFiles/CMakeDirectoryInformation.cmake
+@@ -0,0 +1,16 @@
++# CMAKE generated file: DO NOT EDIT!
++# Generated by "Unix Makefiles" Generator, CMake Version 3.22
++
++# Relative path conversion top directories.
++set(CMAKE_RELATIVE_PATH_TOP_SOURCE "/home/ub1804/pgi_ws/SVF")
++set(CMAKE_RELATIVE_PATH_TOP_BINARY "/home/ub1804/pgi_ws/SVF")
++
++# Force unix paths in dependencies.
++set(CMAKE_FORCE_UNIX_PATHS 1)
++
++
++# The C and CXX include file regular expressions for this directory.
++set(CMAKE_C_INCLUDE_REGEX_SCAN "^.*$")
++set(CMAKE_C_INCLUDE_REGEX_COMPLAIN "^$")
++set(CMAKE_CXX_INCLUDE_REGEX_SCAN ${CMAKE_C_INCLUDE_REGEX_SCAN})
++set(CMAKE_CXX_INCLUDE_REGEX_COMPLAIN ${CMAKE_C_INCLUDE_REGEX_COMPLAIN})
+diff --git a/tools/OPDFI/CMakeFiles/progress.marks b/tools/OPDFI/CMakeFiles/progress.marks
+new file mode 100644
+index 00000000..d22307c4
+--- /dev/null
++++ b/tools/OPDFI/CMakeFiles/progress.marks
+@@ -0,0 +1 @@
++88
+diff --git a/tools/OPDFI/CMakeFiles/rain.dir/DependInfo.cmake b/tools/OPDFI/CMakeFiles/rain.dir/DependInfo.cmake
+new file mode 100644
+index 00000000..e1c61bac
+--- /dev/null
++++ b/tools/OPDFI/CMakeFiles/rain.dir/DependInfo.cmake
+@@ -0,0 +1,21 @@
++
++# Consider dependencies only in project.
++set(CMAKE_DEPENDS_IN_PROJECT_ONLY OFF)
++
++# The set of languages for which implicit dependencies are needed:
++set(CMAKE_DEPENDS_LANGUAGES
++  )
++
++# The set of dependency files which are needed:
++set(CMAKE_DEPENDS_DEPENDENCY_FILES
++  "/home/ub1804/pgi_ws/SVF/tools/Rain/dependency_walker.cpp" "tools/Rain/CMakeFiles/rain.dir/dependency_walker.cpp.o" "gcc" "tools/Rain/CMakeFiles/rain.dir/dependency_walker.cpp.o.d"
++  "/home/ub1804/pgi_ws/SVF/tools/Rain/instrumenter_loger.cpp" "tools/Rain/CMakeFiles/rain.dir/instrumenter_loger.cpp.o" "gcc" "tools/Rain/CMakeFiles/rain.dir/instrumenter_loger.cpp.o.d"
++  )
++
++# Targets to which this target links.
++set(CMAKE_TARGET_LINKED_INFO_FILES
++  "/home/ub1804/pgi_ws/SVF/lib/CMakeFiles/Svf.dir/DependInfo.cmake"
++  )
++
++# Fortran module output directory.
++set(CMAKE_Fortran_TARGET_MODULE_DIR "")
+diff --git a/tools/OPDFI/CMakeFiles/rain.dir/build.make b/tools/OPDFI/CMakeFiles/rain.dir/build.make
+new file mode 100644
+index 00000000..c2a7c2aa
+--- /dev/null
++++ b/tools/OPDFI/CMakeFiles/rain.dir/build.make
+@@ -0,0 +1,128 @@
++# CMAKE generated file: DO NOT EDIT!
++# Generated by "Unix Makefiles" Generator, CMake Version 3.22
++
++# Delete rule output on recipe failure.
++.DELETE_ON_ERROR:
++
++#=============================================================================
++# Special targets provided by cmake.
++
++# Disable implicit rules so canonical targets will work.
++.SUFFIXES:
++
++# Disable VCS-based implicit rules.
++% : %,v
++
++# Disable VCS-based implicit rules.
++% : RCS/%
++
++# Disable VCS-based implicit rules.
++% : RCS/%,v
++
++# Disable VCS-based implicit rules.
++% : SCCS/s.%
++
++# Disable VCS-based implicit rules.
++% : s.%
++
++.SUFFIXES: .hpux_make_needs_suffix_list
++
++# Command-line flag to silence nested $(MAKE).
++$(VERBOSE)MAKESILENT = -s
++
++#Suppress display of executed commands.
++$(VERBOSE).SILENT:
++
++# A target that is always out of date.
++cmake_force:
++.PHONY : cmake_force
++
++#=============================================================================
++# Set environment variables for the build.
++
++# The shell in which to execute make rules.
++SHELL = /bin/sh
++
++# The CMake executable.
++CMAKE_COMMAND = /usr/local/bin/cmake
++
++# The command to remove a file.
++RM = /usr/local/bin/cmake -E rm -f
++
++# Escaping for special characters.
++EQUALS = =
++
++# The top-level source directory on which CMake was run.
++CMAKE_SOURCE_DIR = /home/ub1804/pgi_ws/SVF
++
++# The top-level build directory on which CMake was run.
++CMAKE_BINARY_DIR = /home/ub1804/pgi_ws/SVF
++
++# Include any dependencies generated for this target.
++include tools/Rain/CMakeFiles/rain.dir/depend.make
++# Include any dependencies generated by the compiler for this target.
++include tools/Rain/CMakeFiles/rain.dir/compiler_depend.make
++
++# Include the progress variables for this target.
++include tools/Rain/CMakeFiles/rain.dir/progress.make
++
++# Include the compile flags for this target's objects.
++include tools/Rain/CMakeFiles/rain.dir/flags.make
++
++tools/Rain/CMakeFiles/rain.dir/dependency_walker.cpp.o: tools/Rain/CMakeFiles/rain.dir/flags.make
++tools/Rain/CMakeFiles/rain.dir/dependency_walker.cpp.o: tools/Rain/dependency_walker.cpp
++tools/Rain/CMakeFiles/rain.dir/dependency_walker.cpp.o: tools/Rain/CMakeFiles/rain.dir/compiler_depend.ts
++	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/ub1804/pgi_ws/SVF/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object tools/Rain/CMakeFiles/rain.dir/dependency_walker.cpp.o"
++	cd /home/ub1804/pgi_ws/SVF/tools/Rain && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT tools/Rain/CMakeFiles/rain.dir/dependency_walker.cpp.o -MF CMakeFiles/rain.dir/dependency_walker.cpp.o.d -o CMakeFiles/rain.dir/dependency_walker.cpp.o -c /home/ub1804/pgi_ws/SVF/tools/Rain/dependency_walker.cpp
++
++tools/Rain/CMakeFiles/rain.dir/dependency_walker.cpp.i: cmake_force
++	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/rain.dir/dependency_walker.cpp.i"
++	cd /home/ub1804/pgi_ws/SVF/tools/Rain && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/ub1804/pgi_ws/SVF/tools/Rain/dependency_walker.cpp > CMakeFiles/rain.dir/dependency_walker.cpp.i
++
++tools/Rain/CMakeFiles/rain.dir/dependency_walker.cpp.s: cmake_force
++	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/rain.dir/dependency_walker.cpp.s"
++	cd /home/ub1804/pgi_ws/SVF/tools/Rain && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/ub1804/pgi_ws/SVF/tools/Rain/dependency_walker.cpp -o CMakeFiles/rain.dir/dependency_walker.cpp.s
++
++tools/Rain/CMakeFiles/rain.dir/instrumenter_loger.cpp.o: tools/Rain/CMakeFiles/rain.dir/flags.make
++tools/Rain/CMakeFiles/rain.dir/instrumenter_loger.cpp.o: tools/Rain/instrumenter_loger.cpp
++tools/Rain/CMakeFiles/rain.dir/instrumenter_loger.cpp.o: tools/Rain/CMakeFiles/rain.dir/compiler_depend.ts
++	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/ub1804/pgi_ws/SVF/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object tools/Rain/CMakeFiles/rain.dir/instrumenter_loger.cpp.o"
++	cd /home/ub1804/pgi_ws/SVF/tools/Rain && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT tools/Rain/CMakeFiles/rain.dir/instrumenter_loger.cpp.o -MF CMakeFiles/rain.dir/instrumenter_loger.cpp.o.d -o CMakeFiles/rain.dir/instrumenter_loger.cpp.o -c /home/ub1804/pgi_ws/SVF/tools/Rain/instrumenter_loger.cpp
++
++tools/Rain/CMakeFiles/rain.dir/instrumenter_loger.cpp.i: cmake_force
++	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/rain.dir/instrumenter_loger.cpp.i"
++	cd /home/ub1804/pgi_ws/SVF/tools/Rain && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/ub1804/pgi_ws/SVF/tools/Rain/instrumenter_loger.cpp > CMakeFiles/rain.dir/instrumenter_loger.cpp.i
++
++tools/Rain/CMakeFiles/rain.dir/instrumenter_loger.cpp.s: cmake_force
++	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/rain.dir/instrumenter_loger.cpp.s"
++	cd /home/ub1804/pgi_ws/SVF/tools/Rain && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/ub1804/pgi_ws/SVF/tools/Rain/instrumenter_loger.cpp -o CMakeFiles/rain.dir/instrumenter_loger.cpp.s
++
++# Object files for target rain
++rain_OBJECTS = \
++"CMakeFiles/rain.dir/dependency_walker.cpp.o" \
++"CMakeFiles/rain.dir/instrumenter_loger.cpp.o"
++
++# External object files for target rain
++rain_EXTERNAL_OBJECTS =
++
++tools/Rain/librain.so: tools/Rain/CMakeFiles/rain.dir/dependency_walker.cpp.o
++tools/Rain/librain.so: tools/Rain/CMakeFiles/rain.dir/instrumenter_loger.cpp.o
++tools/Rain/librain.so: tools/Rain/CMakeFiles/rain.dir/build.make
++tools/Rain/librain.so: lib/libSvf.a
++tools/Rain/librain.so: z3.obj/bin/libz3.a
++tools/Rain/librain.so: tools/Rain/CMakeFiles/rain.dir/link.txt
++	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/ub1804/pgi_ws/SVF/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Linking CXX shared library librain.so"
++	cd /home/ub1804/pgi_ws/SVF/tools/Rain && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/rain.dir/link.txt --verbose=$(VERBOSE)
++
++# Rule to build all files generated by this target.
++tools/Rain/CMakeFiles/rain.dir/build: tools/Rain/librain.so
++.PHONY : tools/Rain/CMakeFiles/rain.dir/build
++
++tools/Rain/CMakeFiles/rain.dir/clean:
++	cd /home/ub1804/pgi_ws/SVF/tools/Rain && $(CMAKE_COMMAND) -P CMakeFiles/rain.dir/cmake_clean.cmake
++.PHONY : tools/Rain/CMakeFiles/rain.dir/clean
++
++tools/Rain/CMakeFiles/rain.dir/depend:
++	cd /home/ub1804/pgi_ws/SVF && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/ub1804/pgi_ws/SVF /home/ub1804/pgi_ws/SVF/tools/Rain /home/ub1804/pgi_ws/SVF /home/ub1804/pgi_ws/SVF/tools/Rain /home/ub1804/pgi_ws/SVF/tools/Rain/CMakeFiles/rain.dir/DependInfo.cmake --color=$(COLOR)
++.PHONY : tools/Rain/CMakeFiles/rain.dir/depend
++
+diff --git a/tools/OPDFI/CMakeFiles/rain.dir/cmake_clean.cmake b/tools/OPDFI/CMakeFiles/rain.dir/cmake_clean.cmake
+new file mode 100644
+index 00000000..e4a1c833
+--- /dev/null
++++ b/tools/OPDFI/CMakeFiles/rain.dir/cmake_clean.cmake
+@@ -0,0 +1,13 @@
++file(REMOVE_RECURSE
++  "CMakeFiles/rain.dir/dependency_walker.cpp.o"
++  "CMakeFiles/rain.dir/dependency_walker.cpp.o.d"
++  "CMakeFiles/rain.dir/instrumenter_loger.cpp.o"
++  "CMakeFiles/rain.dir/instrumenter_loger.cpp.o.d"
++  "librain.pdb"
++  "librain.so"
++)
++
++# Per-language clean rules from dependency scanning.
++foreach(lang CXX)
++  include(CMakeFiles/rain.dir/cmake_clean_${lang}.cmake OPTIONAL)
++endforeach()
+diff --git a/tools/OPDFI/CMakeFiles/rain.dir/compiler_depend.make b/tools/OPDFI/CMakeFiles/rain.dir/compiler_depend.make
+new file mode 100644
+index 00000000..57c37d00
+--- /dev/null
++++ b/tools/OPDFI/CMakeFiles/rain.dir/compiler_depend.make
+@@ -0,0 +1,2 @@
++# Empty compiler generated dependencies file for rain.
++# This may be replaced when dependencies are built.
+diff --git a/tools/OPDFI/CMakeFiles/rain.dir/compiler_depend.ts b/tools/OPDFI/CMakeFiles/rain.dir/compiler_depend.ts
+new file mode 100644
+index 00000000..744bcdc9
+--- /dev/null
++++ b/tools/OPDFI/CMakeFiles/rain.dir/compiler_depend.ts
+@@ -0,0 +1,2 @@
++# CMAKE generated file: DO NOT EDIT!
++# Timestamp file for compiler generated dependencies management for rain.
+diff --git a/tools/OPDFI/CMakeFiles/rain.dir/depend.make b/tools/OPDFI/CMakeFiles/rain.dir/depend.make
+new file mode 100644
+index 00000000..ef694156
+--- /dev/null
++++ b/tools/OPDFI/CMakeFiles/rain.dir/depend.make
+@@ -0,0 +1,2 @@
++# Empty dependencies file for rain.
++# This may be replaced when dependencies are built.
+diff --git a/tools/OPDFI/CMakeFiles/rain.dir/flags.make b/tools/OPDFI/CMakeFiles/rain.dir/flags.make
+new file mode 100644
+index 00000000..c258c378
+--- /dev/null
++++ b/tools/OPDFI/CMakeFiles/rain.dir/flags.make
+@@ -0,0 +1,10 @@
++# CMAKE generated file: DO NOT EDIT!
++# Generated by "Unix Makefiles" Generator, CMake Version 3.22
++
++# compile CXX with /usr/bin/c++
++CXX_DEFINES = -Drain_EXPORTS
++
++CXX_INCLUDES = -I/home/ub1804/pgi_ws/SVF/include -I/home/ub1804/pgi_ws/SVF/z3.obj/include -I/home/ub1804/pgi_ws/SVF/tools/Rain -isystem /home/ub1804/jay_ws/llvm-project/llvm/include -isystem /home/ub1804/jay_ws/llvm-project/build/include
++
++CXX_FLAGS =  -fPIC -Wall -O3 -fno-rtti -fPIC   -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -fno-rtti -std=gnu++14
++
+diff --git a/tools/OPDFI/CMakeFiles/rain.dir/link.txt b/tools/OPDFI/CMakeFiles/rain.dir/link.txt
+new file mode 100644
+index 00000000..59cf4509
+--- /dev/null
++++ b/tools/OPDFI/CMakeFiles/rain.dir/link.txt
+@@ -0,0 +1 @@
++/usr/bin/c++ -fPIC  -fPIC -Wall -O3 -fno-rtti -shared -Wl,-soname,librain.so -o librain.so CMakeFiles/rain.dir/dependency_walker.cpp.o CMakeFiles/rain.dir/instrumenter_loger.cpp.o  ../../lib/libSvf.a ../../z3.obj/bin/libz3.a 
+diff --git a/tools/OPDFI/CMakeFiles/rain.dir/progress.make b/tools/OPDFI/CMakeFiles/rain.dir/progress.make
+new file mode 100644
+index 00000000..a51ec2eb
+--- /dev/null
++++ b/tools/OPDFI/CMakeFiles/rain.dir/progress.make
+@@ -0,0 +1,4 @@
++CMAKE_PROGRESS_1 = 93
++CMAKE_PROGRESS_2 = 
++CMAKE_PROGRESS_3 = 94
++
+diff --git a/tools/OPDFI/CMakeLists.txt b/tools/OPDFI/CMakeLists.txt
+new file mode 100644
+index 00000000..d6fc77c6
+--- /dev/null
++++ b/tools/OPDFI/CMakeLists.txt
+@@ -0,0 +1,27 @@
++set(THREADS_PREFER_PTHREAD_FLAG ON)
++find_package(Threads REQUIRED)
++
++message("@@@@@@@@@${CMAKE_CURRENT_SOURCE_DIR}")
++
++INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR})
++
++
++add_library(dfAnalysis SHARED dependency_analysis/dfAnalysis.cpp dependency_analysis/dfAnalysis.h dependency_analysis/dependency_walker.cpp dependency_analysis/instrumenter_loger.cpp)
++target_link_libraries(dfAnalysis PUBLIC Svf) # ${llvm_libs} Threads::Threads)
++                                #  Svf)
++                                #  ${llvm_bitwriter}
++                                #  ${llvm_irreader})
++
++link_libraries(dfAnalysis)
++
++set_target_properties(dfAnalysis PROPERTIES
++                        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib )
++
++
++
++target_compile_features(dfAnalysis PRIVATE cxx_range_for cxx_auto_type)
++
++
++set_target_properties(dfAnalysis PROPERTIES
++	COMPILE_FLAGS "-fno-rtti"
++)
+diff --git a/tools/OPDFI/Makefile b/tools/OPDFI/Makefile
+new file mode 100644
+index 00000000..df04df2f
+--- /dev/null
++++ b/tools/OPDFI/Makefile
+@@ -0,0 +1,258 @@
++# CMAKE generated file: DO NOT EDIT!
++# Generated by "Unix Makefiles" Generator, CMake Version 3.22
++
++# Default target executed when no arguments are given to make.
++default_target: all
++.PHONY : default_target
++
++# Allow only one "make -f Makefile2" at a time, but pass parallelism.
++.NOTPARALLEL:
++
++#=============================================================================
++# Special targets provided by cmake.
++
++# Disable implicit rules so canonical targets will work.
++.SUFFIXES:
++
++# Disable VCS-based implicit rules.
++% : %,v
++
++# Disable VCS-based implicit rules.
++% : RCS/%
++
++# Disable VCS-based implicit rules.
++% : RCS/%,v
++
++# Disable VCS-based implicit rules.
++% : SCCS/s.%
++
++# Disable VCS-based implicit rules.
++% : s.%
++
++.SUFFIXES: .hpux_make_needs_suffix_list
++
++# Command-line flag to silence nested $(MAKE).
++$(VERBOSE)MAKESILENT = -s
++
++#Suppress display of executed commands.
++$(VERBOSE).SILENT:
++
++# A target that is always out of date.
++cmake_force:
++.PHONY : cmake_force
++
++#=============================================================================
++# Set environment variables for the build.
++
++# The shell in which to execute make rules.
++SHELL = /bin/sh
++
++# The CMake executable.
++CMAKE_COMMAND = /usr/local/bin/cmake
++
++# The command to remove a file.
++RM = /usr/local/bin/cmake -E rm -f
++
++# Escaping for special characters.
++EQUALS = =
++
++# The top-level source directory on which CMake was run.
++CMAKE_SOURCE_DIR = /home/ub1804/pgi_ws/SVF
++
++# The top-level build directory on which CMake was run.
++CMAKE_BINARY_DIR = /home/ub1804/pgi_ws/SVF
++
++#=============================================================================
++# Targets provided globally by CMake.
++
++# Special rule for the target edit_cache
++edit_cache:
++	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Running CMake cache editor..."
++	/usr/local/bin/ccmake -S$(CMAKE_SOURCE_DIR) -B$(CMAKE_BINARY_DIR)
++.PHONY : edit_cache
++
++# Special rule for the target edit_cache
++edit_cache/fast: edit_cache
++.PHONY : edit_cache/fast
++
++# Special rule for the target rebuild_cache
++rebuild_cache:
++	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Running CMake to regenerate build system..."
++	/usr/local/bin/cmake --regenerate-during-build -S$(CMAKE_SOURCE_DIR) -B$(CMAKE_BINARY_DIR)
++.PHONY : rebuild_cache
++
++# Special rule for the target rebuild_cache
++rebuild_cache/fast: rebuild_cache
++.PHONY : rebuild_cache/fast
++
++# Special rule for the target list_install_components
++list_install_components:
++	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Available install components are: \"Svf\" \"devel\""
++.PHONY : list_install_components
++
++# Special rule for the target list_install_components
++list_install_components/fast: list_install_components
++.PHONY : list_install_components/fast
++
++# Special rule for the target install
++install: preinstall
++	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Install the project..."
++	/usr/local/bin/cmake -P cmake_install.cmake
++.PHONY : install
++
++# Special rule for the target install
++install/fast: preinstall/fast
++	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Install the project..."
++	/usr/local/bin/cmake -P cmake_install.cmake
++.PHONY : install/fast
++
++# Special rule for the target install/local
++install/local: preinstall
++	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Installing only the local directory..."
++	/usr/local/bin/cmake -DCMAKE_INSTALL_LOCAL_ONLY=1 -P cmake_install.cmake
++.PHONY : install/local
++
++# Special rule for the target install/local
++install/local/fast: preinstall/fast
++	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Installing only the local directory..."
++	/usr/local/bin/cmake -DCMAKE_INSTALL_LOCAL_ONLY=1 -P cmake_install.cmake
++.PHONY : install/local/fast
++
++# Special rule for the target install/strip
++install/strip: preinstall
++	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Installing the project stripped..."
++	/usr/local/bin/cmake -DCMAKE_INSTALL_DO_STRIP=1 -P cmake_install.cmake
++.PHONY : install/strip
++
++# Special rule for the target install/strip
++install/strip/fast: preinstall/fast
++	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Installing the project stripped..."
++	/usr/local/bin/cmake -DCMAKE_INSTALL_DO_STRIP=1 -P cmake_install.cmake
++.PHONY : install/strip/fast
++
++# The main all target
++all: cmake_check_build_system
++	cd /home/ub1804/pgi_ws/SVF && $(CMAKE_COMMAND) -E cmake_progress_start /home/ub1804/pgi_ws/SVF/CMakeFiles /home/ub1804/pgi_ws/SVF/tools/Rain//CMakeFiles/progress.marks
++	cd /home/ub1804/pgi_ws/SVF && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tools/Rain/all
++	$(CMAKE_COMMAND) -E cmake_progress_start /home/ub1804/pgi_ws/SVF/CMakeFiles 0
++.PHONY : all
++
++# The main clean target
++clean:
++	cd /home/ub1804/pgi_ws/SVF && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tools/Rain/clean
++.PHONY : clean
++
++# The main clean target
++clean/fast: clean
++.PHONY : clean/fast
++
++# Prepare targets for installation.
++preinstall: all
++	cd /home/ub1804/pgi_ws/SVF && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tools/Rain/preinstall
++.PHONY : preinstall
++
++# Prepare targets for installation.
++preinstall/fast:
++	cd /home/ub1804/pgi_ws/SVF && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tools/Rain/preinstall
++.PHONY : preinstall/fast
++
++# clear depends
++depend:
++	cd /home/ub1804/pgi_ws/SVF && $(CMAKE_COMMAND) -S$(CMAKE_SOURCE_DIR) -B$(CMAKE_BINARY_DIR) --check-build-system CMakeFiles/Makefile.cmake 1
++.PHONY : depend
++
++# Convenience name for target.
++tools/Rain/CMakeFiles/rain.dir/rule:
++	cd /home/ub1804/pgi_ws/SVF && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tools/Rain/CMakeFiles/rain.dir/rule
++.PHONY : tools/Rain/CMakeFiles/rain.dir/rule
++
++# Convenience name for target.
++rain: tools/Rain/CMakeFiles/rain.dir/rule
++.PHONY : rain
++
++# fast build rule for target.
++rain/fast:
++	cd /home/ub1804/pgi_ws/SVF && $(MAKE) $(MAKESILENT) -f tools/Rain/CMakeFiles/rain.dir/build.make tools/Rain/CMakeFiles/rain.dir/build
++.PHONY : rain/fast
++
++dependency_walker.o: dependency_walker.cpp.o
++.PHONY : dependency_walker.o
++
++# target to build an object file
++dependency_walker.cpp.o:
++	cd /home/ub1804/pgi_ws/SVF && $(MAKE) $(MAKESILENT) -f tools/Rain/CMakeFiles/rain.dir/build.make tools/Rain/CMakeFiles/rain.dir/dependency_walker.cpp.o
++.PHONY : dependency_walker.cpp.o
++
++dependency_walker.i: dependency_walker.cpp.i
++.PHONY : dependency_walker.i
++
++# target to preprocess a source file
++dependency_walker.cpp.i:
++	cd /home/ub1804/pgi_ws/SVF && $(MAKE) $(MAKESILENT) -f tools/Rain/CMakeFiles/rain.dir/build.make tools/Rain/CMakeFiles/rain.dir/dependency_walker.cpp.i
++.PHONY : dependency_walker.cpp.i
++
++dependency_walker.s: dependency_walker.cpp.s
++.PHONY : dependency_walker.s
++
++# target to generate assembly for a file
++dependency_walker.cpp.s:
++	cd /home/ub1804/pgi_ws/SVF && $(MAKE) $(MAKESILENT) -f tools/Rain/CMakeFiles/rain.dir/build.make tools/Rain/CMakeFiles/rain.dir/dependency_walker.cpp.s
++.PHONY : dependency_walker.cpp.s
++
++instrumenter_loger.o: instrumenter_loger.cpp.o
++.PHONY : instrumenter_loger.o
++
++# target to build an object file
++instrumenter_loger.cpp.o:
++	cd /home/ub1804/pgi_ws/SVF && $(MAKE) $(MAKESILENT) -f tools/Rain/CMakeFiles/rain.dir/build.make tools/Rain/CMakeFiles/rain.dir/instrumenter_loger.cpp.o
++.PHONY : instrumenter_loger.cpp.o
++
++instrumenter_loger.i: instrumenter_loger.cpp.i
++.PHONY : instrumenter_loger.i
++
++# target to preprocess a source file
++instrumenter_loger.cpp.i:
++	cd /home/ub1804/pgi_ws/SVF && $(MAKE) $(MAKESILENT) -f tools/Rain/CMakeFiles/rain.dir/build.make tools/Rain/CMakeFiles/rain.dir/instrumenter_loger.cpp.i
++.PHONY : instrumenter_loger.cpp.i
++
++instrumenter_loger.s: instrumenter_loger.cpp.s
++.PHONY : instrumenter_loger.s
++
++# target to generate assembly for a file
++instrumenter_loger.cpp.s:
++	cd /home/ub1804/pgi_ws/SVF && $(MAKE) $(MAKESILENT) -f tools/Rain/CMakeFiles/rain.dir/build.make tools/Rain/CMakeFiles/rain.dir/instrumenter_loger.cpp.s
++.PHONY : instrumenter_loger.cpp.s
++
++# Help Target
++help:
++	@echo "The following are some of the valid targets for this Makefile:"
++	@echo "... all (the default if no target is provided)"
++	@echo "... clean"
++	@echo "... depend"
++	@echo "... edit_cache"
++	@echo "... install"
++	@echo "... install/local"
++	@echo "... install/strip"
++	@echo "... list_install_components"
++	@echo "... rebuild_cache"
++	@echo "... rain"
++	@echo "... dependency_walker.o"
++	@echo "... dependency_walker.i"
++	@echo "... dependency_walker.s"
++	@echo "... instrumenter_loger.o"
++	@echo "... instrumenter_loger.i"
++	@echo "... instrumenter_loger.s"
++.PHONY : help
++
++
++
++#=============================================================================
++# Special targets to cleanup operation of make.
++
++# Special rule to run CMake to check the build system integrity.
++# No rule that depends on this can have commands that come from listfiles
++# because they might be regenerated.
++cmake_check_build_system:
++	cd /home/ub1804/pgi_ws/SVF && $(CMAKE_COMMAND) -S$(CMAKE_SOURCE_DIR) -B$(CMAKE_BINARY_DIR) --check-build-system CMakeFiles/Makefile.cmake 0
++.PHONY : cmake_check_build_system
++
+diff --git a/tools/OPDFI/cmake_install.cmake b/tools/OPDFI/cmake_install.cmake
+new file mode 100644
+index 00000000..419cc8cd
+--- /dev/null
++++ b/tools/OPDFI/cmake_install.cmake
+@@ -0,0 +1,44 @@
++# Install script for directory: /home/ub1804/pgi_ws/SVF/tools/Rain
++
++# Set the install prefix
++if(NOT DEFINED CMAKE_INSTALL_PREFIX)
++  set(CMAKE_INSTALL_PREFIX "/usr/local")
++endif()
++string(REGEX REPLACE "/$" "" CMAKE_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
++
++# Set the install configuration name.
++if(NOT DEFINED CMAKE_INSTALL_CONFIG_NAME)
++  if(BUILD_TYPE)
++    string(REGEX REPLACE "^[^A-Za-z0-9_]+" ""
++           CMAKE_INSTALL_CONFIG_NAME "${BUILD_TYPE}")
++  else()
++    set(CMAKE_INSTALL_CONFIG_NAME "")
++  endif()
++  message(STATUS "Install configuration: \"${CMAKE_INSTALL_CONFIG_NAME}\"")
++endif()
++
++# Set the component getting installed.
++if(NOT CMAKE_INSTALL_COMPONENT)
++  if(COMPONENT)
++    message(STATUS "Install component: \"${COMPONENT}\"")
++    set(CMAKE_INSTALL_COMPONENT "${COMPONENT}")
++  else()
++    set(CMAKE_INSTALL_COMPONENT)
++  endif()
++endif()
++
++# Install shared libraries without execute permission?
++if(NOT DEFINED CMAKE_INSTALL_SO_NO_EXE)
++  set(CMAKE_INSTALL_SO_NO_EXE "1")
++endif()
++
++# Is this installation the result of a crosscompile?
++if(NOT DEFINED CMAKE_CROSSCOMPILING)
++  set(CMAKE_CROSSCOMPILING "FALSE")
++endif()
++
++# Set default install directory permissions.
++if(NOT DEFINED CMAKE_OBJDUMP)
++  set(CMAKE_OBJDUMP "/usr/bin/objdump")
++endif()
++
+diff --git a/tools/OPDFI/dependency_analysis/common.h b/tools/OPDFI/dependency_analysis/common.h
+new file mode 100644
+index 00000000..5531d0c4
+--- /dev/null
++++ b/tools/OPDFI/dependency_analysis/common.h
+@@ -0,0 +1,30 @@
++
++#pragma once 
++#include <cassert>
++#include <cstdio>
++#include <fstream>
++#include <iostream>
++#include <set>
++#include <sstream>
++#include <string>
++#include <fstream>
++#include <fcntl.h>
++#include <unistd.h>
++
++#include "SVF-FE/LLVMUtil.h"
++#include "WPA/WPAPass.h"
++#include "Util/Options.h"
++#include "DDA/DDAPass.h"
++#include "SVF-FE/SVFIRBuilder.h"
++#include "CFL/CFLAlias.h"
++#include "CFL/CFLVF.h"
++
++using namespace llvm;
++using namespace std;
++using namespace SVF;
++
++// class Instrumenter;
++
++#include "instrumenter_loger.h"
++#include "dependency_walker.h"
++#include "dfAnalysis.h"
+\ No newline at end of file
+diff --git a/tools/OPDFI/dependency_analysis/dependency_walker.cpp b/tools/OPDFI/dependency_analysis/dependency_walker.cpp
+new file mode 100644
+index 00000000..f39c2c32
+--- /dev/null
++++ b/tools/OPDFI/dependency_analysis/dependency_walker.cpp
+@@ -0,0 +1,1176 @@
++
++#include "dfAnalysis.h"
++
++using namespace llvm;
++using namespace std;
++using namespace SVF;
++Set<Instruction *> DepWalker::getUpperDefsStrLdr(Instruction *inst) {}
++
++
++Set<SVFGNode *> DepWalker::getUpperDefs(SVFGNode *svfgnode,bool isRecord) {
++  //   errs()<<"\nDaaaaDDDD \n";
++  Set<SVFGNode *> upperDefs;
++  if (isVisit((SVFGNode *)svfgnode)&&isRecord) {
++    return upperDefs;
++  }
++  if(isRecord){
++    visit((SVFGNode *)svfgnode);
++  }
++  
++  // errs()<<"\nDDDDD "<<svfgnode->toString()<<" bbbbbOURCE \n";
++  const SVFGNode::GEdgeSetTy &edges = svfgnode->getInEdges();
++  //    errs()<<edges.size()<<" RCE \n";
++  //    const SVFGNode::GEdgeSetTy edges(_edges);
++  // errs()<<" ccccbbbbbOURCE \n";
++  //   const SVFGNode::GEdgeSetTy _edges=svfgnode->getInEdges();
++  //    errs()<<edges.size()<<" SOURCE \n";
++  for (auto edge : edges) {
++    //  errs()<<" SOUR\n";
++    const SVFGNode *src_svfnode = edge->getSrcNode();
++    // errs()<<" sssSOURCE \n";
++    upperDefs.insert((SVFGNode *)src_svfnode);
++    // errs()<<" SOUR\n";
++    //  errs()<<" SOURCE vfgnode "<<src_svfnode->toString()<<"\n";
++  }
++  //    errs()<<" SENNNOUR\n";
++  return upperDefs;
++}
++
++Set<SVFGNode *> DepWalker::getUpperDefs(Instruction *inst) {
++  Set<SVFGNode *> upperDefs;
++  SVFGNode *svfgnode = getSVFGNodeFromInst(inst);
++  if (svfgnode == nullptr) {
++    return upperDefs;
++  }
++  return getUpperDefs((SVFGNode *)svfgnode);
++}
++
++void DepWalker::getUpperStore(SVFGNode *svfgnode){
++
++
++      Instruction* loadInst=getLoad(svfgnode);
++       if(!loadInst){
++        return;
++       }
++       if(instrumenter->load2store.find(loadInst)!=instrumenter->load2store.end()){
++        return ;
++       }
++
++       if(instrumenter->load2numdef.find(loadInst)!=instrumenter->load2numdef.end()){
++        return;
++       }
++
++      std::stack<SVFGNode *> worklist;
++      Set<SVFGNode *> visited;
++      int num_stores=0;
++      worklist.push(svfgnode);
++      Set<Instruction*> upperdefinst;
++      while(worklist.size()>0){
++            SVFGNode * n=worklist.top();
++            worklist.pop();
++            visited.insert(n);
++            Set<SVFGNode *> tmp = getUpperDefs(n,false);
++            for(auto m:tmp){
++             
++              Instruction* storeInst=getStore(m);
++              if(!storeInst&&(visited.find(m)==visited.end())){
++                worklist.push(m);
++              }else if(storeInst&&((visited.find(m)==visited.end()))){
++                  num_stores++;
++                  upperdefinst.insert(storeInst);
++              }
++            }
++      }
++      instrumenter->load2numdef.insert(std::make_pair(loadInst,upperdefinst.size()));
++      instrumenter->load2store.insert(std::make_pair(loadInst,upperdefinst));
++      // errs()<<"loadInst: "<<*loadInst<<"\n";
++      for(auto i:upperdefinst){
++              // errs()<<" ---- "<<*i<<"\n";
++      }
++}
++
++void DepWalker::getUpperLoad(SVFGNode *svfgnode){
++
++      Instruction* storeInst=getStore(svfgnode);
++       if(!storeInst){
++        return;
++       }
++      if(instrumenter->store2load.find(storeInst)!=instrumenter->store2load.end()){
++        return ;
++       }
++
++      //  if(instrumenter->load2numdef.find(loadInst)!=instrumenter->load2numdef.end()){
++      //   return;
++      //  }
++
++      std::stack<SVFGNode *> worklist;
++      Set<SVFGNode *> visited;
++      // int num_stores=0;
++      worklist.push(svfgnode);
++      Set<Instruction*> upperdefinst;
++      while(worklist.size()>0){
++            SVFGNode * n=worklist.top();
++            worklist.pop();
++            visited.insert(n);
++            Set<SVFGNode *> tmp = getUpperDefs(n,false);
++            for(auto m:tmp){
++             
++              Instruction* loadInst=getLoad(m);
++              if(!loadInst&&(visited.find(m)==visited.end())){
++                worklist.push(m);
++              }else if(loadInst&&((visited.find(m)==visited.end()))){
++                  // num_stores++;
++                  upperdefinst.insert(loadInst);
++              }
++            }
++      }
++      instrumenter->store2load.insert(std::make_pair(storeInst,upperdefinst));
++      // instrumenter->load2numdef.insert(std::make_pair(loadInst,upperdefinst.size()));
++      // errs()<<"storeInst: "<<*storeInst<<"\n";
++      for(auto i:upperdefinst){
++              // errs()<<" ----~!!! "<<*i<<"\n";
++      }
++}
++
++void DepWalker::getAllUpperDeps(SVFGNode *svfgnode) {
++  // vector<SVFGNode*> allnodes;
++  Set<SVFGNode *> upperdefs = getUpperDefs(svfgnode);
++
++  if(instrumenter->maintainDef_num){
++      getUpperStore(svfgnode);
++    }
++    if(instrumenter->maintainDef_num){
++      getUpperLoad(svfgnode);
++    }
++  
++
++  while (!isAllVisit(upperdefs)) {
++    Set<SVFGNode *> unvisited = getNew(upperdefs);
++    upperdefs.clear();
++    //  Set<SVFGNode*> newupper;
++    for (auto n : unvisited) {
++      Set<SVFGNode *> tmp = getUpperDefs(n);
++      for (auto i : tmp) {
++        upperdefs.insert(i);
++          if(instrumenter->maintainDef_num){
++            getUpperStore(i);
++          }
++    
++      }
++      // processing phi instruction
++      if (isControlDep) {
++        // errs()<<"  hhhh1\n";
++        addControlDependency(n, upperdefs,tmp);
++        // errs()<<"  sadfasdfads\n";
++      }
++    }
++
++  }
++}
++
++void DepWalker::addControlDependency(SVFGNode *n, Set<SVFGNode *> &upperdefs,Set<SVFGNode *> tmp) {
++  if (MSSAPHISVFGNode::classof(n) || PHISVFGNode::classof(n)||FormalINSVFGNode::classof(n)
++  ||ActualOUTSVFGNode::classof(n)||FormalParmVFGNode::classof(n)) {
++    // errs() << "\nthis is MSSAPHISVFGNode " << n->toString() << "\n";
++    Set<SVFGNode *> svfgnodeCdeps;
++    if (phi2Cdep.find(n) != phi2Cdep.end()) {
++      svfgnodeCdeps = phi2Cdep[n];
++    } else {
++      // Set<Instruction *> converted;
++      Set<BasicBlock *> converted;
++      Set<SVFGNode*> origins;
++      // errs()<<" size of phi:"<<tmp.size()<<"\n";
++      for (auto m : tmp) {
++        if (m == nullptr) {
++          // errs() << "NULL_Occur\n";
++          continue;
++        }
++
++        // const Value *value = m->getValue();
++        const ICFGNode* icfgnode=m->getICFGNode();
++          const BasicBlock* nodebb=icfgnode->getBB();
++        // if (!value) {
++        //   // Set<SVFGNode*> upp=getUpperDefs(m,false);
++          
++        //   errs()<<" SVFGNode: "<<m->toString()<<" ;; ICFGNnode: "<<icfgnode->toString()<<" ;;BB: "<<"\n";
++        //    nodebb->printAsOperand(errs(),false);
++        //    errs() << "none_ value\n";
++        //   continue;
++        // }
++     
++        // const Instruction *inst = llvm::dyn_cast<llvm::Instruction>(value);
++        if (nodebb) {
++        //  errs()<<"---- "<<m->toString()<<"\n";
++        origins.insert(m);
++          converted.insert((BasicBlock *)nodebb);
++        }
++      }
++      // errs()<<" add cdep for "<<n->toString
++      Set<Instruction *> cdeps;
++      if(IntraMSSAPHISVFGNode::classof(n)||IntraPHISVFGNode::classof(n)){
++         cdeps=find_difference(converted);
++        // cdeps=mainpass->_find_difference(converted);
++      }else{
++        errs()<<"Upper: "<<n->toString()<<"\n";
++           if(isICFGcdep){
++            // cdeps=find_difference(converted);
++            // errs()<<"why here\n";
++
++            for(auto p:origins){
++              // errs()<<"-----"<<p->toString()<<"\n";
++            }
++           cdeps=find_inter_pro_difference(converted,origins,n);
++              // errs()<<"fcdfer here\n";
++          }else{
++            // cdeps=mainpass->_find_difference(converted);
++            cdeps=find_difference(converted);
++          }
++
++      }
++     
++
++      for (auto tcdep : cdeps) { // convert instruction to svfgnode;
++    
++        SVFGNode *ttmp = getSVFGNodeFromInst(tcdep);
++   
++        if (ttmp) {
++          svfgnodeCdeps.insert(ttmp);
++        } else {
++     
++        }
++      }
++      phi2Cdep.insert(std::make_pair(n, svfgnodeCdeps));
++
++      //
++    }
++
++    for (auto toAddSvfgnode : svfgnodeCdeps) {
++      upperdefs.insert(toAddSvfgnode);
++    }
++
++    // errs()<<"ddd\n";
++    // std::vector<Instruction*> vc(converted.begin(),converted.end());
++    // errs()<<*vc[0]<<"ccvv\n";
++  }
++}
++void DepWalker::getAllUpperDeps_saveStates(SVFGNode *svfgnode) {
++  // vector<SVFGNode*> allnodes;
++  if (isCalc(svfgnode)) {
++    return;
++  }
++  calc(svfgnode);
++
++  // Set<SVFGNode*> alldeps;
++
++  Set<SVFGNode *> upperdefs = getUpperDefs(svfgnode);
++
++  for (auto n : upperdefs) {
++    visitedSVFGNode2DepMap[svfgnode].insert(n);
++  }
++  for (auto n : upperdefs) {
++    getAllUpperDeps_saveStates(n);
++    for (auto m : visitedSVFGNode2DepMap[n]) {
++      visitedSVFGNode2DepMap[svfgnode].insert(m);
++    }
++  }
++}
++
++
++
++void DepWalker::getAllUpperDeps(Instruction *inst) {
++  // errs()<<" why "<<*inst;
++  // SVFGNode* _svfgnode=getSVFGNodeFromInst(inst);
++  // errs()<<" aaaawhy "<<_svfgnode;
++  SVFGNode *svfgnode = getSVFGNodeFromInst(inst);
++  if (svfgnode == nullptr) {
++    return;
++  }
++  // errs()<<" wwwwhy "<<svfgnode<<"\n";
++  // errs()<<"mmmmm \n";
++  // errs()<<svfgnode->toString()<<"\n";
++  if (saveState) {
++
++    getAllUpperDeps_saveStates(svfgnode);
++  } else {
++    getAllUpperDeps(svfgnode);
++  }
++}
++
++SVFGNode *DepWalker::getSVFGNodeFromInst(Instruction *inst) {
++    if(!inst){
++       
++        return nullptr;
++    }
++  // Set<SVFGNode*> upperDefs;
++  SymbolTableInfo::ValueToIDMapTy::const_iterator iter = valSymMap.find(inst);
++  Function *llvmfun = inst->getFunction();
++  const SVFFunction *svfFun = svfModule->getSVFFunction(llvmfun);
++  SVFVar *node = pag->getGNode(iter->second);
++
++  if (iter == valSymMap.end()) {
++    // errs() << "NOTfound : " << *inst << "\n";
++    return nullptr;
++  }
++
++  const SVFGNode *svfgnode = nullptr;
++  if (svfg->hasDefSVFGNode(node)) {
++    svfgnode = svfg->getDefSVFGNode(node);
++    //  errs()<<" here is vfgnode "<<svfgnode->toString()<<"\n";
++  } else {
++
++    //   errs()<<" NOOOOO vfgnode "<<node->toString()<<"\n";
++
++    const IRGraph::SVFStmtSet &svfStmtSet = pag->getValueEdges(inst);
++    //  errs()<<" SSSNOOOode "<<"\n";
++    //  for(IRGraph::SVFStmtSet::const_iterator
++    //  _it=svfStmtSet.begin();_it!=svfStmtSet.end();_it++){
++    for (auto it : svfStmtSet) {
++      // errs()<<"   vvvv  "<<it->toString()<<"   cc\n";
++      if (const ReturnInst *retInst = SVFUtil::dyn_cast<ReturnInst>(inst)) {
++        //  const SVFFunction *svfFun = &fun;
++        const PAGNode *fun_return = pag->getFunRet(svfFun);
++        svfgnode = svfg->getFormalRetVFGNode(fun_return);
++        //  errs()<<" Return vfgnode "<<svfgnode->toString()<<"\n";
++      } else {
++        // errs() << "\n others " << it->toString();
++        if (svfg->hasStmtVFGNode(it)) {
++          svfgnode = svfg->getStmtVFGNode(it);
++        }
++        //   errs()<<" KKKOOO vfgnode "<<svfgnode->toString()<<"\n";
++      }
++    }
++    // errs()<<" qqqqqSSSNOOOode "<<"\n";
++  }
++  if (svfgnode == nullptr) {
++    // errs() << " this is null_svfg_node_ptr: " << *inst << "  "
++    //        << "\n";
++  }
++  return (SVFGNode *)svfgnode;
++}
++// get the all depedency for a instruction
++DepWalker::VisitedSVFGNodeSetTy
++DepWalker::getAllUpperDeps_single(Instruction *inst, bool track) {
++  VisitedSVFGNodeSetTy tmp = visitedSVFGNodeSet;
++  //   errs()<<"````````size : "<<visitedSVFGNodeSet.size()<<"\n";
++  visitedSVFGNodeSet.clear();
++
++  getAllUpperDeps(inst);
++
++  VisitedSVFGNodeSetTy result = visitedSVFGNodeSet;
++  visitedSVFGNodeSet = tmp;
++  if (track) {
++    for (auto n : result) {
++      visitedSVFGNodeSet.insert(n);
++    }
++  }
++  {
++    SVFGNode *svfgnode = getSVFGNodeFromInst(inst);
++    visitedSVFGNode2DepNum.insert(std::make_pair(svfgnode, result.size()));
++    visitedSVFGNode2LoadNum.insert(
++        std::make_pair(svfgnode, getLoad(result).size()));
++    visitedSVFGNode2StoreNum.insert(
++        std::make_pair(svfgnode, getStore(result).size()));
++  }
++
++  //  errs()<<"size : "<<visitedSVFGNodeSet.size()<<"\n";
++
++  return result;
++}
++
++Set<BasicBlock*> DepWalker::getReachableBlocks( BasicBlock *TargetBB) {
++          Set<BasicBlock*> ReachingBlocks;
++        ReachingBlocks.insert(TargetBB);
++
++        // Perform backwards traversal of the dominator tree
++        std::vector<BasicBlock*> WorkList;
++        WorkList.push_back(TargetBB);
++        while (!WorkList.empty()) {
++          BasicBlock *BB = WorkList.back();
++          WorkList.pop_back();
++          for (auto *Pred : predecessors(BB)) {
++            if (ReachingBlocks.insert(Pred).second) {
++              WorkList.push_back(Pred);
++            }
++          }
++        }
++        return ReachingBlocks;
++}
++
++Instruction* DepWalker::getFunPtr(CallICFGNode* cifgnode){
++    if(!cifgnode){
++        errs()<<"null cfignoe\n";
++        return nullptr;
++    }
++    // errs()<<" hhhhsdsdxw ";
++    errs()<<cifgnode->toString()<<"\n";
++      const Instruction* cinst=cifgnode->getCallSite();
++      
++      //  errs()<<" kojhioyjo\n";
++      const CallInst *csInst = SVFUtil::dyn_cast<CallInst>(cinst);
++      if(!csInst){
++        errs()<<" konullcsInt\n";
++        return nullptr;
++      }
++      // errs()<<" asxrr\n"<<csInst;
++      // errs()<<"\n  dsddd "<<cifgnode->toString()<<"ss";
++      Function* callee = csInst->getCalledFunction();
++      // errs()<<" bnbmnbbjk\n";
++      if(!callee){
++        // errs()<<" ncheuyce\n";
++        Value* calledValue = csInst->getCalledOperand();
++        // errs()<<" ijoikopkop\n";
++        const Instruction *toadd = SVFUtil::dyn_cast<Instruction>(calledValue);
++        // results.insert((Instruction *)toadd);
++        // errs()<<"this is the func pointer ";
++        // errs()<<*calledValue<<"\n";
++        return (Instruction *)toadd;
++      }
++      // errs()<<" trtgbtrbt\n";
++      return nullptr;
++}
++
++
++ Set<SVFFunction*> DepWalker::getDistinguishFunction(Set<Function*> llvmfset,
++  Map< SVFFunction*, Map<unsigned long,Set<CallICFGNode* > > >&fun2equivCallsite,
++  Map< SVFFunction*, Map<unsigned long,Set<CallICFGNode* > > >& fun2singleCallsite){
++  // Map<Function*,Set<Instruction*> > results;
++  Map<SVFFunction*,Set<PTACallGraphEdge*> > ret_results;
++
++Map<SVFFunction* ,Set<SVFFunction*>> fun2ReachFunmap;
++Set<SVFFunction*> funs2analysis;
++Set<SVFFunction*> fset;
++  for(auto item:llvmfset){//first initialize the reacahble func map
++      Function* fun=item;
++      // errs()<<"dsvds\n"<<svfModule<<"  d\n";
++      // svfModule->getSVFFunction(fun);
++      // errs()<<"vcdfvdf"<<fun->getName()<<"\n";
++      SVFFunction* svffun=(SVFFunction*)svfModule->getSVFFunction(fun);
++      fset.insert(svffun);
++      // errs()<<"cdssd\n";
++      Set<SVFFunction*> tmp=ptacallgraph->getReachableFunctions(svffun);
++      // errs()<<"cdwc\n";
++      fun2ReachFunmap.insert(std::make_pair(svffun,tmp));
++      for(auto kk:tmp){
++        funs2analysis.insert(kk);
++        if(!kk){
++          // errs()<<"nnnnn\n";
++        }
++        // errs()<<"Here is rechacble   "<<kk->getLLVMFun()->getName()<<"\n";
++      }
++  }
++  errs()<<"RSize: "<<funs2analysis.size()<<"\n";
++  // for()
++
++  Set<SVFFunction*> criticalFunc;
++  // Map<SVFFunction* , Map<SVFFunction*, PTACallGraphEdge* > > fun2suc2calledge;
++  Map<SVFFunction* , Set<PTACallGraphEdge* > > fun2calledges;
++  Map<PTACallGraphEdge* ,unsigned long> edge2ReachMap;
++  Map<SVFFunction* ,unsigned long> func2ReachMap;
++  // errs()<<"analyzie_reachable\n";
++    // Map<SVFFunction* , Set<PTACallGraphEdge* >> criti_calledges;
++  for(auto sfun:funs2analysis){ //initialize the reachstate of each fun, only analysis the rechable function
++      // errs()<<"now for: "<<sfun->getLLVMFun()->getName()<<"\n";
++      Map<SVFFunction*,bool> fun2bool;
++      unsigned long fRem=0;
++      for (auto ib : fset) {
++      bool isReb=fun2ReachFunmap[ib].find(sfun)!=fun2ReachFunmap[ib].end();
++      fun2bool.insert(std::make_pair(ib,isReb));
++      fRem+=isReb;
++      fRem=fRem<<1;
++    }
++    func2ReachMap.insert(std::make_pair(sfun,fRem));
++  
++
++      Set<SVFFunction*> notAllnullSucc;//remove all none succ
++      
++      Map<SVFFunction*,Map<SVFFunction*,bool>> sun2_fset2bools;
++      // errs()<<"fewfew here\n";
++    //  Map<SVFFunction*, PTACallGraphEdge* >succ2edge;
++     Set<PTACallGraphEdge* >calledges;
++    //  errs()<<"wvwwvw\n";
++       for (PTACallGraph::CallGraphEdgeConstIter it = ptacallgraph->getCallGraphNode(sfun)->OutEdgeBegin(), eit = ptacallgraph->getCallGraphNode(sfun)->OutEdgeEnd(); it != eit; ++it){
++            PTACallGraphEdge* edge = *it;
++            // errs()<<"dcfv\n";
++            SVFFunction* succ=(SVFFunction*)edge->getDstNode()->getFunction();
++            Map<SVFFunction*,bool> suc_fun2bool;
++            bool notallnull=false;
++            unsigned long reachMap=0;
++            //  errs()<<"grtgt here\n";
++            for(auto ib : fset){
++                bool isReb=fun2ReachFunmap[ib].find(succ)!=fun2ReachFunmap[ib].end();
++                suc_fun2bool.insert(std::make_pair(ib,isReb));
++                reachMap+=isReb;
++                reachMap=reachMap<<1;
++                notallnull=notallnull||isReb;
++            }
++            // errs()<<" succ: "<<succ->getLLVMFun()->getName()<<" reachmap :"<<reachMap<<"\n";
++            //  errs()<<"fegtrtre here\n";
++            if(func2ReachMap.find(succ)==func2ReachMap.end()){
++              func2ReachMap.insert(std::make_pair(succ,reachMap));
++            }
++            //  errs()<<"jiujki7u here\n";
++            edge2ReachMap.insert(std::make_pair(edge,reachMap));
++            if(notallnull){
++              notAllnullSucc.insert(succ);
++              // succ2edge.insert(std::make_pair(succ,edge));
++              calledges.insert(edge);
++              
++            }
++            //  errs()<<"j7uyhrtert here\n";
++            sun2_fset2bools.insert(std::make_pair(succ,suc_fun2bool));
++            
++       }
++        // errs()<<"gyy4re here\n";
++       fun2calledges.insert(std::make_pair(sfun,calledges));
++         bool dif_master = false;
++      bool dif = false;
++    // errs()<<"all null succ: "<<notAllnullSucc.size()<<"\n";
++      for(auto succ:notAllnullSucc){//check whether distinguishable func calls.
++               int last_tmp=-1;
++                // errs()<<"j6765ew here\n";
++                // Map<BasicBlock*,bool> suc_bb2bool;
++        for(auto ib : fset){
++          //  errs()<<"gt54tefw here\n";
++                dif_master=dif_master|| fun2bool[ib]!=sun2_fset2bools[succ][ib];
++                if(last_tmp==-1){
++                    last_tmp=sun2_fset2bools[succ][ib];
++                }else{
++                      dif=dif|| (last_tmp!=sun2_fset2bools[succ][ib]);
++                  last_tmp=sun2_fset2bools[succ][ib];
++                }
++        }
++        //  errs()<<"uj5654 here\n";
++        if(dif_master&&dif){
++          break;
++        }
++
++
++      }
++      //  errs()<<"vrth56h45e here\n";
++      if(dif&&dif_master){
++        criticalFunc.insert(sfun);
++
++        ret_results.insert(std::make_pair(sfun,fun2calledges[sfun]));
++        //  errs()<<"jikioyhrt here\n";
++
++          // errs() << " function_critical: "<<sfun->getLLVMFun()->getName()<<"\n";
++      }
++      //  errs()<<"hjy5645x here\n";
++   
++
++   
++  }
++// errs()<<"arrive here\n";
++  //filter equivlant edges
++
++
++  // errs()<<"fdnsjknk here\n";
++  for(auto cf:criticalFunc){
++
++    Set<PTACallGraphEdge* > setedges=fun2calledges[cf];
++    Map<unsigned long,Set<PTACallGraphEdge* > > equivalanceedges;
++    for(auto e : setedges){
++        unsigned long rem=edge2ReachMap[e];
++        if(equivalanceedges.find(rem)==equivalanceedges.end()){
++          Set<PTACallGraphEdge* > eq;
++          eq.insert(e);
++          equivalanceedges.insert(std::make_pair(rem,eq));
++
++        }else{
++          equivalanceedges[rem].insert(e);
++        }
++        //  Set<const CallICFGNode*> dcs=e->getDirectCalls();
++        //  Set<const CallICFGNode*> indcs=e->getIndirectCalls();
++    }
++
++    Map<unsigned long,Set<CallICFGNode* > > equivCallsite;
++    Map<unsigned long,Set<CallICFGNode* > > singleCallsite;
++    for(auto eqedge:equivalanceedges ){
++            unsigned long rem=eqedge.first;
++            Set<CallICFGNode*> eq_calls;
++            Set<CallICFGNode*>  to_p_indi_calls;
++            
++            for(auto edge: eqedge.second){
++              Set<const CallICFGNode*> dcs=edge->getDirectCalls();
++              for(auto tmp:dcs){
++                eq_calls.insert((CallICFGNode*)tmp);
++              }
++              Set<const CallICFGNode*> idcs=edge->getIndirectCalls();
++              for(auto tmp:idcs){
++                Set<const SVFFunction*> callees;
++                ptacallgraph->getCallees(tmp,callees);
++                int notnull=0;
++                for(auto callee:callees){
++                  if(func2ReachMap[(SVFFunction*)callee]!=0){
++                      notnull++;
++                      if(func2ReachMap[(SVFFunction*)callee]!=rem){
++                        to_p_indi_calls.insert((CallICFGNode*)tmp);
++                        notnull=-1;
++                        break;
++                      }
++                  }
++                }
++                if(notnull>=1){
++                    eq_calls.insert((CallICFGNode*)tmp);
++                }
++
++
++
++              }
++            }
++            equivCallsite.insert(std::make_pair(rem,eq_calls));
++            singleCallsite.insert(std::make_pair(rem,to_p_indi_calls));
++
++
++    }
++
++    fun2equivCallsite.insert(std::make_pair(cf,equivCallsite));
++    fun2singleCallsite.insert(std::make_pair(cf,singleCallsite));
++    
++
++  }
++  /*
++  for(auto cf:criticalFunc){
++
++    Set<Instruction*> callsites;
++    Set<PTACallGraphEdge* > setedges=fun2calledges[cf];
++    for(auto e : setedges){
++           Set<const CallICFGNode*> dcs=e->getDirectCalls();
++           for(auto dc:dcs){
++             const Instruction* cinst=dc->getCallSite();
++             callsites.insert((Instruction*)cinst);
++           }
++
++           Set<const CallICFGNode*> indcs=e->getIndirectCalls();
++           for(auto indc:indcs){
++             const Instruction* cinst=indc->getCallSite();
++             callsites.insert((Instruction*)cinst);
++           }
++    }
++    results.insert(std::make_pair(cf,callsites));
++  }
++  */
++  // for(auto)
++  //todo --  get a mapping from func to callsites instruction;  
++  errs()<<"CSize: "<<criticalFunc.size()<<"\n";
++  return criticalFunc;
++}
++
++Set<Instruction *> DepWalker::find_inter_pro_difference(Set<BasicBlock *> bbset,Set<SVFGNode*>origins,SVFGNode* n) {
++  // PTACallGraph* ptacallgraph=getPTACallGraph();
++   
++  //  if(FormalINSVFGNode::classof(n)
++  // ||ActualOUTSVFGNode::classof(n)||FormalParmVFGNode::classof(n)){
++
++  // }
++
++  
++    
++
++    Set<Instruction *>  results;
++    if(origins.size()<=1){
++      return results;
++    }
++    // errs()<<"thhhhhh\n";
++
++    if(ActualOUTSVFGNode::classof(n)){
++      const ActualOUTSVFGNode* ao = SVFUtil::dyn_cast<ActualOUTSVFGNode>(n);
++      const CallICFGNode* cifgnode=ao->getCallSite();
++      // errs()<<"failtogetp\n";
++      Instruction *toadd=getFunPtr((CallICFGNode*)cifgnode);
++      // errs()<<"cwcew\n";
++      if(toadd){
++            results.insert((Instruction *)toadd);
++      }
++      
++      return results;
++
++    }
++
++
++      //  errs()<<"vdfsvdfbgvdfj\n";
++
++
++  Map<Function* ,Set<BasicBlock*>> fun2BBmap;
++  Set<Function*> fset;
++  for (auto i : bbset) {
++    if(!i){
++        // errs() << "nooon " << "\n";
++      bbset.erase(i);
++      continue;
++    }
++    //  errs() << "sssfsdno\n";
++    // errs()<<"ascfdsfgv\n";
++    if (i->getParent()) {
++      // errs() << "TODO iCFG tree: " << *i << "\n";
++      Function* fun=i->getParent();
++      // errs()<<"functName: "<<fun->getName()<<"\n";
++      if(fun2BBmap.find(fun)==fun2BBmap.end()){
++        Set<BasicBlock*> tmps;
++        tmps.insert(i);
++        fun2BBmap.insert(std::make_pair(fun,tmps));
++      }else{
++        fun2BBmap[fun].insert(i);
++      }
++      fset.insert(fun);
++      // return difference;
++    }
++    // errs()<<"fwefr\n";
++   
++  }
++
++//  const ICFGNode* icfgnode=m->getICFGNode();
++//           const BasicBlock* nodebb=icfgnode->getBB();
++  const Function* selffun=n->getICFGNode()->getFun()->getLLVMFun();
++  fset.insert((Function*)selffun);
++  if(fun2BBmap.find((Function*)selffun)==fun2BBmap.end()){
++    Set<BasicBlock*> empty;
++    fun2BBmap.insert(std::make_pair((Function*)selffun,empty));
++  }
++  //get determine function;
++  // errs()<<"gtrghrt\n";
++  Map< SVFFunction*, Map<unsigned long,Set<CallICFGNode* > > >fun2equivCallsite;
++  Map< SVFFunction*, Map<unsigned long,Set<CallICFGNode* > > > fun2singleCallsite;
++ Set<SVFFunction*> criticalFunctions=getDistinguishFunction(fset,fun2equivCallsite,fun2singleCallsite);
++  // errs()<<"print critical func :"<<"\n";
++  for(auto sgg:criticalFunctions){
++    //  errs()<<"dddddd"<<sgg->getLLVMFun()->getName()<<"\n";
++  }
++  //for individual function:
++
++ 
++
++  for(auto cf:criticalFunctions){
++    Map<unsigned long,Set<CallICFGNode* >> equivCallsite=fun2equivCallsite[cf];
++    Map<unsigned long,Set<CallICFGNode* >> singleCallsite=fun2singleCallsite[cf];
++
++
++    std::vector<Set<BasicBlock*>> vecbbset;
++    
++    for(auto callset:equivCallsite){
++      Set<BasicBlock*> bbset;
++
++      unsigned long rem=callset.first;
++      
++      for(auto callsite:callset.second){
++        
++        const Instruction* cinst=callsite->getCallSite();
++        if(cinst){
++            const BasicBlock* bb=cinst->getParent();
++            if(bb){
++                bbset.insert((BasicBlock*)bb);
++            }else{
++              errs()<<"non_bb\n";
++            }
++        }else{
++          errs()<<"non_cinst\n";
++        }
++        
++      }
++      vecbbset.push_back(bbset);
++       
++    }
++
++    for(auto singlecall:singleCallsite){
++      for(auto ind_c:singlecall.second){
++        Set<BasicBlock*> bbset;
++         const Instruction* cinst=ind_c->getCallSite();
++        if(cinst){
++            const BasicBlock* bb=cinst->getParent();
++            if(bb){
++                bbset.insert((BasicBlock*)bb);
++                 vecbbset.push_back(bbset); // bbset only has one element
++                 Instruction *toadd=getFunPtr((CallICFGNode*)ind_c); //add func pointer to protection.
++                 if(toadd){
++                      results.insert(toadd);
++                 }else{
++                  errs()<<"non_func_ptr\n";
++                 }
++                 
++            }else{
++              errs()<<"non_bb\n";
++            }
++        }else{
++          errs()<<"non_cinst\n";
++        }
++
++      }
++    }
++
++    Set<Instruction*> toaddInst=find_difference_group(vecbbset);
++    for(auto inst:toaddInst){
++      results.insert(inst);
++    }
++    //todo get control depedency
++  }
++  // errs()<<"efwerg\n";
++// for(auto item: togetFun){
++
++//   // Set<>
++
++
++// }
++errs()<<"!---- added_inter-control_dep: "<<results.size()<<" ";
++for(auto i:results){
++  //  errs()<<"addingcc:  "<<*i<<"\n";
++}
++
++Set<Instruction *> single;
++ for(auto f:fset){
++    Set<BasicBlock*> individual=fun2BBmap[f];
++    Set<Instruction *> toadded=find_difference(individual);
++    for(auto tmp:toadded){
++      results.insert(tmp);
++      single.insert(tmp);
++      // errs()<<"MMMMM "<<*tmp<<"\n";
++    }
++  }
++  errs()<<"intra-control_dep: "<<single.size()<<" total_control_dep: "<<results.size()<<"\n";
++
++  // errs()<<"added control_dep: "<<results.size()<<"\n";
++for(auto i:results){
++  //  errs()<<"total results:  "<<*i<<"\n";
++}
++  return results;
++
++}
++//group rechable set together
++Set<Instruction *> DepWalker::find_difference_group( std::vector<Set<BasicBlock*>> vecbbset) {
++     Set<Instruction *> difference;
++
++  if(vecbbset.size()<=1){
++    return difference;
++  }
++
++  // Set<BasicBlock *> bset;
++  llvm::Function *fun = nullptr;
++  for (int i=0;i<vecbbset.size();i++) {
++    for(auto bb:vecbbset[i]){
++      if(!bb){
++        vecbbset[i].erase(bb);
++        continue;
++      }
++       fun = bb->getParent();
++    }
++  }
++
++  std::vector<Set<BasicBlock*>> reachablebbset;
++
++    
++  for (int i=0;i<vecbbset.size();i++){
++    Set<BasicBlock*> allReachable;
++    for(auto bb:vecbbset[i]){
++        if(bb2ReachableBB.find(bb)==bb2ReachableBB.end()){
++      // errs()<<"compute reachable set\n";
++      Set<BasicBlock*> tmpset=getReachableBlocks(bb);
++      bb2ReachableBB.insert(std::make_pair(bb,tmpset));
++    }
++    Set<BasicBlock*> reachable=bb2ReachableBB[bb];
++    for(auto adding:reachable){
++      allReachable.insert(adding);
++    }
++    }
++    reachablebbset.push_back(allReachable);
++  }
++  
++
++  Set<BasicBlock *> difbb;
++
++
++  
++ 
++  for (Function::iterator bb = fun->begin(), e = fun->end(); bb != e; ++bb) {
++    BasicBlock *currBB = &(*bb);
++    
++     Map<int,bool> bb2bool;
++     bool has_effect=false;
++    for (int i=0;i<vecbbset.size();i++) {
++      bool isReb=reachablebbset[i].find(currBB)!=reachablebbset[i].end();
++      bb2bool.insert(std::make_pair(i,isReb));
++      has_effect=has_effect||isReb;
++    }
++    if(!has_effect){
++      continue;
++    }
++    bool dif_master = false;
++     bool dif = false;
++    // Map<BasicBlock*,Map<BasicBlock*,bool> > all_suc_bb2bool;
++    bool notwholenull=false;
++    for(auto succ : successors(currBB)){
++       Map<int,bool> suc_bb2bool;
++       int last_tmp=-1;
++       notwholenull=false;
++        for (int i=0;i<vecbbset.size();i++) {
++        bool isReb=reachablebbset[i].find(succ)!=reachablebbset[i].end();
++        suc_bb2bool.insert(std::make_pair(i,isReb));
++        dif_master=dif_master||(isReb!=bb2bool[i]);
++        notwholenull=notwholenull||isReb;
++        if(last_tmp==-1){
++          last_tmp=isReb;
++        }else{
++          dif=dif|| (last_tmp!=isReb);
++          last_tmp=isReb;
++        }
++        
++        }
++
++        if(!notwholenull){
++          break;
++        }
++        // notwholenull=false;
++        if(dif_master&&dif){
++          break;
++        }
++        // all_suc_bb2bool.insert(std::make_pair(succ,suc_bb2bool));
++
++    }
++   
++    if(dif&&dif_master&&notwholenull){
++      //  errs() << " to difference: \n";
++      difbb.insert(currBB);
++
++      // currBB->printAsOperand(errs(), false);
++      // errs()<<">>>\n";
++      Instruction *tmp = getBranchInst(currBB);
++      
++          if (tmp) {
++            BranchInst *branchInst = dyn_cast<BranchInst>(tmp);
++            llvm::Value *cond = branchInst->getCondition();
++
++            // while(!cond){
++
++            // }
++
++            // errs() << "get terminator : " << *cond << "\n";
++            if (Instruction *cdep = dyn_cast<Instruction>(cond)) {
++              difference.insert(cdep);
++            }
++          }
++
++    }
++
++  }
++
++  // }
++  return difference;
++
++}
++
++Set<Instruction *> DepWalker::find_difference(Set<BasicBlock *> bset) {
++  // each inst must be not null_ptr
++  //  DependenceAnalysis DA;
++  //  Function* F=svfgnode->getFun()->getLLVMFun();
++  
++  Set<Instruction *> difference;
++
++  if(bset.size()<=1){
++    return difference;
++  }
++
++  // Set<BasicBlock *> bset;
++  llvm::Function *fun = nullptr;
++  for (auto i : bset) {
++    if(!i){
++        // errs() << "nooon " << "\n";
++      bset.erase(i);
++      continue;
++    }
++    //  errs() << "sssfsdno\n";
++    
++    fun = i->getParent();
++    // bset.insert(i->getParent());
++  }
++
++  for(auto bb:bset){
++    if(bb2ReachableBB.find(bb)==bb2ReachableBB.end()){
++      // errs()<<"compute reachable set\n";
++      Set<BasicBlock*> tmpset=getReachableBlocks(bb);
++      bb2ReachableBB.insert(std::make_pair(bb,tmpset));
++    }
++  }  
++
++  Set<BasicBlock *> difbb;
++
++
++  
++ 
++  for (Function::iterator bb = fun->begin(), e = fun->end(); bb != e; ++bb) {
++    BasicBlock *currBB = &(*bb);
++    
++     Map<BasicBlock*,bool> bb2bool;
++     bool has_effect=false;
++    for (auto ib : bset) {
++      bool isReb=bb2ReachableBB[ib].find(currBB)!=bb2ReachableBB[ib].end();
++      bb2bool.insert(std::make_pair(ib,isReb));
++      has_effect=has_effect||isReb;
++    }
++    if(!has_effect){
++      continue;
++    }
++    bool dif_master = false;
++     bool dif = false;
++    // Map<BasicBlock*,Map<BasicBlock*,bool> > all_suc_bb2bool;
++    bool notwholenull=false;
++    for(auto succ : successors(currBB)){
++       Map<BasicBlock*,bool> suc_bb2bool;
++       int last_tmp=-1;
++       notwholenull=false;
++        for (auto ib : bset) {
++        bool isReb=bb2ReachableBB[ib].find(succ)!=bb2ReachableBB[ib].end();
++        suc_bb2bool.insert(std::make_pair(ib,isReb));
++        dif_master=dif_master||(isReb!=bb2bool[ib]);
++        notwholenull=notwholenull||isReb;
++        if(last_tmp==-1){
++          last_tmp=isReb;
++        }else{
++          dif=dif|| (last_tmp!=isReb);
++          last_tmp=isReb;
++        }
++        
++        }
++
++        if(!notwholenull){
++          break;
++        }
++        // notwholenull=false;
++        if(dif_master&&dif){
++          break;
++        }
++        // all_suc_bb2bool.insert(std::make_pair(succ,suc_bb2bool));
++
++    }
++   
++    if(dif&&dif_master&&notwholenull){
++      //  errs() << " to difference: \n";
++      difbb.insert(currBB);
++
++      // currBB->printAsOperand(errs(), false);
++      // errs()<<">>>\n";
++      Instruction *tmp = getBranchInst(currBB);
++      
++          if (tmp) {
++            BranchInst *branchInst = dyn_cast<BranchInst>(tmp);
++            llvm::Value *cond = branchInst->getCondition();
++
++            // while(!cond){
++
++            // }
++
++            // errs() << "get terminator : " << *cond << "\n";
++            if (Instruction *cdep = dyn_cast<Instruction>(cond)) {
++              difference.insert(cdep);
++            }
++          }
++
++    }
++
++  }
++
++  // }
++  return difference;
++}
++
++Instruction *DepWalker::getBranchInst(llvm::BasicBlock *bb) {
++  llvm::Instruction *termInst = bb->getTerminator();
++  if (llvm::BranchInst *branchInst =
++          llvm::dyn_cast<llvm::BranchInst>(termInst)) {
++    if (branchInst->isConditional()) {
++      // errs()<<"has con\n";
++      return branchInst;
++    }else{
++      // errs()<<"no con\n";
++    }
++  }
++  return nullptr;
++}
++
++
++
++
++
++
++
++Set<Instruction *> DFAnalysisPass::_find_difference(Set<BasicBlock *> bset) {
++  // each inst must be not null_ptr
++  //  DependenceAnalysis DA;
++  //  Function* F=svfgnode->getFun()->getLLVMFun();
++  
++  Set<Instruction *> difference;
++
++  if(bset.size()<1){
++    return difference;
++  }
++
++  // Set<BasicBlock *> bset;
++  llvm::Function *fun = nullptr;
++  for (auto i : bset) {
++    if(!i){
++        // errs() << "nooon " << "\n";
++      bset.erase(i);
++      continue;
++    }
++    //  errs() << "sssfsdno\n";
++    if (fun != nullptr && fun != i->getParent()) {
++      // errs() << "TODO iCFG tree: " << *i << "\n";
++      bset.erase(i);
++      continue;
++      // return difference;
++    }
++    fun = i->getParent();
++
++  }
++
++  
++
++  Set<BasicBlock *> difbb;
++
++  auto &analysis = getAnalysis<DominatorTreeWrapperPass>(*fun);
++
++  llvm::DominatorTree &DT = analysis.getDomTree();
++
++  // DT.print(errs());
++
++  errs() << " to cdsdifference:\n";
++
++  for (Function::iterator bb = fun->begin(), e = fun->end(); bb != e; ++bb) {
++    BasicBlock *currBB = &(*bb);
++    bool dif = false;
++    for (auto ib : bset) {
++      dif = DT.dominates(currBB, ib);
++      break;
++    }
++    for (auto ib : bset) {
++      if (dif != DT.dominates(currBB, ib)) {
++        difbb.insert(currBB);
++        // currBB->printAsOperand(errs(), false);
++        // errs()<<"current :"<<*currBB;
++
++        for (llvm::BasicBlock *pred : llvm::predecessors(currBB)) {
++          // errs()<<" previous: "<<*pred;
++          Instruction *tmp = depWalker->getBranchInst(pred);
++  
++          if (tmp) {
++            BranchInst *branchInst = dyn_cast<BranchInst>(tmp);
++            llvm::Value *cond = branchInst->getCondition();
++
++            // while(!cond){
++
++            // }
++
++            errs() << "get-terminator : " << "\n";
++            if (Instruction *cdep = dyn_cast<Instruction>(cond)) {
++              difference.insert(cdep);
++            }
++          } else {
++            // errs() << "NO terminator \n";
++          }
++        }
++
++        break;
++      }
++    }
++  }
++   
++  // }
++  return difference;
++}
+\ No newline at end of file
+diff --git a/tools/OPDFI/dependency_analysis/dependency_walker.h b/tools/OPDFI/dependency_analysis/dependency_walker.h
+new file mode 100644
+index 00000000..e66dca9a
+--- /dev/null
++++ b/tools/OPDFI/dependency_analysis/dependency_walker.h
+@@ -0,0 +1,205 @@
++#pragma once 
++
++// #include "dfAnalysis.h"
++#include "common.h"
++
++// using namespace llvm;
++// using namespace std;
++// using namespace SVF;
++
++// class Instrumenter;
++
++class DepWalker{
++
++    // friend DFAnalysisPass;
++    public: 
++    typedef Set<SVFGNode*> VisitedSVFGNodeSetTy;
++    typedef Map<SVFGNode*,int> VisitedSVFGNode2DepNumTy;
++    typedef Map<SVFGNode*,Set<SVFGNode*>> VisitedSVFGNode2DepMapTy;
++    // typedef Map<SVFGNode*, bool>  VisitedSVFGNodeMap;
++    VisitedSVFGNodeSetTy visitedSVFGNodeSet;
++    VisitedSVFGNodeSetTy calcedSVFGNodeSet;
++    VisitedSVFGNode2DepNumTy visitedSVFGNode2DepNum; 
++    VisitedSVFGNode2DepNumTy visitedSVFGNode2LoadNum;
++    VisitedSVFGNode2DepNumTy visitedSVFGNode2StoreNum;
++    VisitedSVFGNode2DepMapTy visitedSVFGNode2DepMap;
++    VisitedSVFGNode2DepMapTy phi2Cdep;
++    llvm::Module &M;
++    SVFModule* svfModule;
++     SVFIR* svfir;
++     SymbolTableInfo::ValueToIDMapTy& valSymMap;
++    SVFG* svfg;
++    SVFIR* pag;
++    PTACallGraph* ptacallgraph;
++    Instrumenter * instrumenter;
++
++   
++    struct DFAnalysisPass* mainpass; 
++    bool saveState;
++    bool isControlDep;
++    bool isICFGcdep;
++    
++    DepWalker(llvm::Module &m,SVFModule* _svfModule, SVFIR* _svfir,SymbolTableInfo::ValueToIDMapTy& _valSymMap,SVFG* _svfg, SVFIR* _pag):M(m),svfModule(_svfModule),
++    svfir(_svfir),valSymMap(_valSymMap),svfg(_svfg),
++    pag(_pag),saveState(false),isControlDep(false),isICFGcdep(false)
++    {
++            // errs()<<" svfgmo: "<<svfModule<<"\n";
++            PointerAnalysis* _pta=svfg->getPTA();
++            ptacallgraph=_pta->getPTACallGraph();
++    }
++
++        Set<Instruction*> find_difference(Set<BasicBlock*>);
++    Set<Instruction *> find_difference_group( std::vector<Set<BasicBlock*>> vecbbset);
++    Set<Instruction *> find_inter_pro_difference(Set<BasicBlock *> ,Set<SVFGNode*>,SVFGNode*) ;
++    Set<SVFFunction*> getDistinguishFunction(Set<Function*> llvmfset,
++  Map< SVFFunction*, Map<unsigned long,Set<CallICFGNode* > > >&fun2equivCallsite,
++  Map< SVFFunction*, Map<unsigned long,Set<CallICFGNode* > > >& fun2singleCallsite);
++    Instruction* getFunPtr(CallICFGNode* cifgnode);
++     typedef Map<BasicBlock*,Set<BasicBlock*>> BB2SetBBMapTy;
++        BB2SetBBMapTy bb2ReachableBB;
++    Instruction* getBranchInst(llvm::BasicBlock* bb);
++    Set<BasicBlock*> getReachableBlocks( BasicBlock *TargetBB);
++
++    inline void visit(SVFGNode* svfgnode){
++            visitedSVFGNodeSet.insert(svfgnode);
++            
++    }
++    inline bool isVisit(SVFGNode* svfgnode){
++        auto search=visitedSVFGNodeSet.find(svfgnode);
++            return search!=visitedSVFGNodeSet.end();
++            // visitedSVFGNodeSet.insert(svfgnode);
++    }
++
++    inline bool isCalc(SVFGNode* svfgnode){
++        auto search=calcedSVFGNodeSet.find(svfgnode);
++            return search!=calcedSVFGNodeSet.end();
++            // visitedSVFGNodeSet.insert(svfgnode);
++    }
++    inline void calc(SVFGNode* svfgnode){
++            Set<SVFGNode*> emptyset;
++            visitedSVFGNode2DepMap.insert(std::make_pair(svfgnode,emptyset));
++            
++    }
++    
++    inline bool isAllVisit(Set<SVFGNode*> nodeset){
++            for(auto n:nodeset){
++                if(!isVisit(n)){
++                    return false;
++                }
++            }
++            return true;
++
++    }
++    inline Set<SVFGNode*> getNew(Set<SVFGNode*> nodeset){
++        Set<SVFGNode*> newnodeset;
++        for(auto n:nodeset){
++                if(!isVisit(n)){
++                    newnodeset.insert(n);
++                }
++            }
++            return newnodeset;
++    }
++    Set<SVFGNode*> getUpperDefs(Instruction* inst);
++    void getUpperStore(SVFGNode *svfgnode);
++    void getUpperLoad(SVFGNode *svfgnode);
++    Set<SVFGNode*> getUpperDefs(SVFGNode* svfgnode,bool isRecord=true);
++    void getAllUpperDeps(SVFGNode* svfgnode);
++    void getAllUpperDeps(Instruction* inst);
++    void getAllUpperDeps_saveStates(SVFGNode* svfgnode);
++    Set<Instruction*> getUpperDefsStrLdr(Instruction* inst);
++    
++
++    SVFGNode* getSVFGNodeFromInst(Instruction* inst);
++
++    VisitedSVFGNodeSetTy getAllUpperDeps_single(Instruction* inst,bool track=true);
++    inline int getMaxfromMap(VisitedSVFGNode2DepNumTy set2num){
++        int max=-1;
++        for(auto it:set2num){
++            if(max<it.second){
++                max=it.second;
++            }
++        }
++        return max;
++    }
++    inline Set<Instruction*> getLoad(Set<SVFGNode*>& svfgnodes){
++        Set<Instruction*> loads;
++        for(auto n:svfgnodes){
++                const Value* value=n->getValue();
++                if(!value){
++                    continue;
++                }
++                const Instruction* inst= llvm::dyn_cast<llvm::Instruction>(value);
++                if(inst){
++                //    errs()<<"true:"<<*inst<<" \n"; 
++                   if(const LoadInst* loadInst= llvm::dyn_cast<llvm::LoadInst>(inst)){
++                    loads.insert((Instruction*)inst);
++                    // errs()<<"true:"<<*inst<<" \n";
++                   }
++                }
++        }
++        return loads;
++        
++    }
++    inline Instruction* getLoad(SVFGNode* n){
++                Instruction* load=nullptr;
++        
++                const Value* value=n->getValue();
++                if(!value){
++                    return nullptr;
++                }
++                const Instruction* inst= llvm::dyn_cast<llvm::Instruction>(value);
++                if(inst){
++                //    errs()<<"true:"<<*inst<<" \n"; 
++                   if(const LoadInst* loadInst= llvm::dyn_cast<llvm::LoadInst>(inst)){
++                    load=(Instruction*)inst;
++                  
++                    // errs()<<"true:"<<*inst<<" \n";
++                   }
++                }
++        
++        return load;
++    }
++
++    inline Instruction* getStore(SVFGNode* n){
++                Instruction* store=nullptr;
++        
++                const Value* value=n->getValue();
++                if(!value){
++                    return nullptr;
++                }
++                const Instruction* inst= llvm::dyn_cast<llvm::Instruction>(value);
++                if(inst){
++                //    errs()<<"true:"<<*inst<<" \n"; 
++                   if(const StoreInst* storeInst= llvm::dyn_cast<llvm::StoreInst>(inst)){
++                    store=(Instruction*)inst;
++                  
++                    // errs()<<"true:"<<*inst<<" \n";
++                   }
++                }
++        
++        return store;
++    }
++
++    inline Set<Instruction*> getStore(Set<SVFGNode*>& svfgnodes){
++        Set<Instruction*> stores;
++        for(auto n:svfgnodes){
++                const Value* value=n->getValue();
++                if(!value){
++                    continue;
++                }
++                const Instruction* inst= llvm::dyn_cast<llvm::Instruction>(value);
++                if(inst){
++                //    errs()<<"true:"<<*inst<<" \n"; 
++                   if(const StoreInst* storeInst= llvm::dyn_cast<llvm::StoreInst>(inst)){
++                    stores.insert((Instruction*)inst);
++                    // errs()<<"true:"<<*inst<<" \n";
++                   }
++                }
++        }
++        return stores;
++        
++    }
++
++    void addControlDependency(SVFGNode* n,Set<SVFGNode*>& upperdefs,Set<SVFGNode *> tmp );
++};
++
+diff --git a/tools/OPDFI/dependency_analysis/dfAnalysis.cpp b/tools/OPDFI/dependency_analysis/dfAnalysis.cpp
+new file mode 100644
+index 00000000..86292083
+--- /dev/null
++++ b/tools/OPDFI/dependency_analysis/dfAnalysis.cpp
+@@ -0,0 +1,323 @@
++
++
++#include "dfAnalysis.h"
++#define PRINTOUT 0
++#define ISANALYSIS 1
++// #include "dependency_walker.cpp"
++// #include "instrumenter_loger.cpp"
++using namespace llvm;
++using namespace std;
++using namespace SVF;
++
++
++
++static cl::opt<std::string> arg_version_id("version_id",
++                                  cl::desc("Describe the argument here"),
++                                  cl::value_desc("arg"));
++
++static cl::opt<std::string> arg_version_info_file("info_file",
++                                  cl::desc("Describe the argument here"),
++                                  cl::value_desc("arg"));
++/*
++int arg_num = 3;
++char *arg_value[3];
++char * arg0="useless";
++char * arg1="useless";
++char* arg2="-ander";
++*/
++/*
++int arg_num = 4;
++char *arg_value[4];
++char * arg0="useless";
++char * arg1="-cxt";
++char* arg2="-query=all";
++*/
++
++int arg_num = 4;
++char *arg_value[4];
++char * arg0="useless";
++char * arg1="--dump-vfg";
++char* arg2="--cflsvfg";
++
++/*
++int arg_num = 10;
++char *arg_value[10];
++char * arg0="useless";
++char * arg1=" -cxt";
++char* arg2="-query=all";
++char* arg3="-max-cxt=3";
++char* arg4="-flow-bg=100000000";
++char* arg5="-cxt-bg=10000000000";
++char* arg6="-stat=false";
++char* arg7="--cdaa";
++char* arg8="--cpts";
++*/
++// char* arg9="";
++// std::vector<SVFVar*> getUpperDefs(llvm::Module &M,Instruction* i,SymbolTableInfo::ValueToIDMapTy& valSymMap){
++//     std::vector<SVFVar*> upperdefs;
++
++// }
++
++bool DFAnalysisPass::runOnModule(llvm::Module &M) {
++
++
++    string arg_verion_id_str = arg_version_id.getValue();
++    int arg_verion_id = stoi(arg_verion_id_str);
++
++
++    string argument_version_info = arg_version_info_file.getValue();
++    double dfi_coverage=0;
++        // num_code_version = stoi(argument_code_version);
++        {
++        FILE *file = fopen(argument_version_info.c_str(), "r");
++        if (file != NULL)
++        {
++            char line[256];
++            int line_num=0;
++            while (fgets(line, sizeof(line), file) != NULL)
++            {
++
++                // Process each line here
++                 line[strcspn(line, "\n")] = '\0'; // Remove the '\n' character at the end
++                char *token = strtok(line, " ");
++
++                int index=atoi(token);
++                // path_formulas.push_back(token);
++                // printf("%s-", token);
++                token = strtok(NULL, " ");
++                // printf("%s-", token);
++                // path_lens.push_back(atoi(token)); // TODO, read the corresponding pWCET, feel free to choose any WCET analysis tool.
++                int cover=atoi(token);
++                line_num++;
++                if(line_num==arg_verion_id){
++                    dfi_coverage=((double)cover)/1000;
++                    // dfi_coverage=cover;
++                    break;
++                }
++                // errs()<<"time:"<<arg_verion_id<<line_num<<"\n";
++                
++                // code_versions_info.push_back(std::make_pair(index,cover)); // TODO, read the corresponding pWCET, feel free to choose any WCET analysis tool.
++            }
++            fclose(file);
++            // errs()<<"dfi_coverage: "<<dfi_coverage<<"\n";
++        }
++        else
++        {
++            printf("Failed to open file: %s\n",argument_version_info.c_str() );
++        }
++
++    }
++
++
++    // errs()<<"argversion_id: "<<arg_verion_id_str <<". argvesion_info:"<<argument_version_info<<"\n";
++
++
++     char * filename = (char*) M.getModuleIdentifier().c_str();
++
++
++    errs()<<"process bitcode: "<<filename<<"\n";
++    // char * filename=.c_str();
++    // for (Function &F : M) {
++    //      errs() << "Dominator tree for "<<F.getName()<<";\n";
++    //     DominatorTree &DT = getAnalysis<DominatorTreeWrapperPass>(F).getDomTree();
++    //     DT.print(errs());
++    //     errs() << "FINISH Dominator tree for "<<F.getName()<<";\n";
++        
++    // }
++    
++    arg_value[0]=arg0;
++    arg_value[1]=arg1;
++    arg_value[2]=arg2;
++    arg_value[3]=filename;
++    
++    //  arg_value[0]=arg0;
++    // arg_value[1]=arg1;
++    // arg_value[2]=arg2;
++    // arg_value[3]=filename;
++    cl::ParseCommandLineOptions(arg_num, arg_value,
++                                "CFL Reachability Analysis\n");
++
++    std::vector<std::string> moduleNameVec;
++    std::string tmp(filename);
++    moduleNameVec.push_back(tmp);
++
++    // SVFModule* svfModule = LLVMModuleSet::getLLVMModuleSet()->buildSVFModule(moduleNameVec);
++    SVFModule* svfModule = LLVMModuleSet::getLLVMModuleSet()->buildSVFModule(M);
++    svfModule->buildSymbolTableInfo();
++
++    SVFIRBuilder builder;
++    SVFIR* svfir = builder.build(svfModule);
++
++    CFLVF* cfl = new CFLVF(svfir);
++    // cfl->analyze();
++    cfl->buildSVFGraph();
++
++
++   
++    // WPAPass *wpa = new WPAPass();
++    /*DDAPass *dda = new DDAPass();
++    dda->runOnModule(svfModule);*/
++    //  wpa->runOnModule(M);
++    //below~~~
++    SymbolTableInfo *symInfo = SymbolTableInfo::SymbolInfo();
++    SymbolTableInfo::ValueToIDMapTy& valSymMap=symInfo->valSyms();
++
++    // PointerAnalysis* pta = cfl->getCurrentPta();
++    // SVFIR* pag= pta->getPAG();
++    SVFG* svfg=cfl->getSvfg();
++   
++    
++    SVFIR* pag=svfir;
++    // if(svfir==svfg->getPAG()){
++    //     errs()<<" EQQQ\n";
++    // }
++    DepWalker depwalker(M,svfModule,svfir,valSymMap,svfg,pag);
++    depwalker.mainpass=this;
++    this->depWalker=&depwalker;
++    Instrumenter instrumenter(M);
++    depwalker.instrumenter=&instrumenter;
++    
++    
++    instrumenter.total_inst=0;
++        /// collect return node of function fun
++    for (SVFModule::iterator fit = svfModule->begin(), efit = svfModule->end();
++            fit != efit; ++fit)
++    {
++        const SVFFunction& fun = **fit;
++        /// collect return node of function fun
++     
++        for (Function::iterator bit = fun.getLLVMFun()->begin(), ebit = fun.getLLVMFun()->end();
++                bit != ebit; ++bit)
++        {
++            BasicBlock& bb = *bit;
++            for (BasicBlock::iterator it = bb.begin(), eit = bb.end();
++                    it != eit; ++it)
++            {
++                    Instruction& inst = *it;
++
++                  
++                    
++                    const LoadInst* loadInst= llvm::dyn_cast<llvm::LoadInst>(&inst);
++                    const StoreInst* storeInst= llvm::dyn_cast<llvm::StoreInst>(&inst);
++                    if(!loadInst && !storeInst){
++                        continue;
++                    }
++                    instrumenter.total_inst++;
++            }
++        }
++    }
++   
++
++    instrumenter.max_inst_instrument=int(instrumenter.total_inst*dfi_coverage);
++//  errs()<<"total_inst:"<<instrumenter.total_inst<<"  max: "<< instrumenter.max_inst_instrument<<"\n";
++     for (SVFModule::iterator fit = svfModule->begin(), efit = svfModule->end();
++            fit != efit; ++fit)
++    {
++        const SVFFunction& fun = **fit;
++        /// collect return node of function fun
++     
++        
++        for (Function::iterator bit = fun.getLLVMFun()->begin(), ebit = fun.getLLVMFun()->end();
++                bit != ebit; ++bit)
++        {
++            BasicBlock& bb = *bit;
++            for (BasicBlock::iterator it = bb.begin(), eit = bb.end();
++                    it != eit; ++it)
++            {
++                    Instruction& inst = *it;
++
++                  
++                    
++                    const LoadInst* loadInst= llvm::dyn_cast<llvm::LoadInst>(&inst);
++                    const StoreInst* storeInst= llvm::dyn_cast<llvm::StoreInst>(&inst);
++                    if(!loadInst && !storeInst){
++                        continue;
++                    }
++
++                    if(!ISANALYSIS){
++                         Set<Instruction*> instset;
++                         instset.insert(&inst);
++                            instrumenter.instrument(instset);
++                        continue;
++                    
++                    }
++                    if(PRINTOUT){
++                        errs()<<" inst: "<<inst<<"\n";
++                    }
++                      
++                  
++                    DepWalker::VisitedSVFGNodeSetTy deps =depwalker.getAllUpperDeps_single(&inst,true);
++                    if(PRINTOUT){
++                          errs()<<" Total Num "<<deps.size()<<"\n";
++                     
++                      errs()<<" Total Num "<<deps.size()<<"\n";
++                    }
++                    //   for(auto n:deps){
++                    //     errs()<<"   ------  "<<n->toString()<<"\n";
++                    //   }
++                      Set<Instruction*> loads=depwalker.getLoad(deps); //ensure security coherence
++                      Set<Instruction*> stores=depwalker.getStore(deps);//ensure security coherence
++                      
++                       if(PRINTOUT){
++                         errs()<<"Num Load: "<<loads.size()<<"  Num store: "<<stores.size()<<"\n";
++                       }
++                     
++                      instrumenter.instrument(loads);
++                      instrumenter.instrument(stores);
++                        instrumenter.logToFile(&inst);
++
++                    
++            }
++        }
++    }   
++
++    
++    // errs() << "  data-dependency, Maxsize: "<<depwalker.getMaxfromMap(depwalker.visitedSVFGNode2DepNum)<<" total num: "<< depwalker.visitedSVFGNodeSet.size()<< "  \n";
++    // errs()<< " load total num: "<<depwalker.visitedSVFGNode2LoadNum.size()<<"  store total num: "<<depwalker.visitedSVFGNode2StoreNum.size()<<" \n";
++    // errs()<< " load max num: "<<depwalker.getMaxfromMap(depwalker.visitedSVFGNode2LoadNum)<<"  store max num: "<<depwalker.getMaxfromMap(depwalker.visitedSVFGNode2StoreNum)<<" \n";
++    
++    return true;
++}
++
++
++char DFAnalysisPass::ID = 0;
++static llvm::RegisterPass<DFAnalysisPass> X("df_analysis", "dfAnalysis pass",
++                                     false /* Only looks at CFG */,
++                                     false /* Analysis Pass */);
++
++static llvm::RegisterStandardPasses
++    Y(llvm::PassManagerBuilder::EP_EarlyAsPossible,
++      [](const llvm::PassManagerBuilder &Builder,
++         llvm::legacy::PassManagerBase &PM) { PM.add(new DFAnalysisPass()); });
++
++
++
++
++
++           /*  using original Module
++            for (auto &F : M.getFunctionList()) 
++    {
++       
++        for (Function::iterator bit = F.begin(), ebit = F.end();
++                bit != ebit; ++bit)
++        {
++            BasicBlock& bb = *bit;
++            for (BasicBlock::iterator it = bb.begin(), eit = bb.end();
++                    it != eit; ++it)
++            {
++                Instruction& inst = *it;
++                SymbolTableInfo::ValueToIDMapTy::const_iterator iter =  valSymMap.find(&inst);
++        
++                
++                if(iter!=valSymMap.end())
++                {
++                    errs()<<"found :" << iter->second<< " inst:"<<inst<<"\n";
++                }else{
++                    errs()<<"NOTfound : "<<inst<<"\n";
++                }
++            }
++        }
++    }
++    */
++
++ 
+diff --git a/tools/OPDFI/dependency_analysis/dfAnalysis.h b/tools/OPDFI/dependency_analysis/dfAnalysis.h
+new file mode 100644
+index 00000000..7c01e5c4
+--- /dev/null
++++ b/tools/OPDFI/dependency_analysis/dfAnalysis.h
+@@ -0,0 +1,67 @@
++#pragma once 
++
++#include "llvm/IR/Function.h"
++#include "llvm/IR/LegacyPassManager.h"
++#include "llvm/Pass.h"
++#include "llvm/Support/raw_ostream.h"
++#include "llvm/Transforms/IPO/PassManagerBuilder.h"
++#include <llvm/IR/Instructions.h>
++#include <llvm/IR/LLVMContext.h>
++#include <llvm/IR/Module.h>
++#include <llvm/Support/raw_ostream.h>
++#include <llvm/IR/IRBuilder.h>
++
++// #include <cassert>
++// #include <cstdio>
++// #include <fstream>
++// #include <iostream>
++// #include <set>
++// #include <sstream>
++// #include <string>
++// #include <fstream>
++// #include <fcntl.h>
++// #include <unistd.h>
++
++// #include "SVF-FE/LLVMUtil.h"
++// #include "WPA/WPAPass.h"
++// #include "Util/Options.h"
++// #include "DDA/DDAPass.h"
++// #include "SVF-FE/SVFIRBuilder.h"
++// #include "CFL/CFLAlias.h"
++// #include "CFL/CFLVF.h"
++#include "common.h"
++
++
++
++// using namespace llvm;
++// using namespace std;
++// using namespace SVF;
++
++// namespace {
++// class DepWalker;
++
++
++
++
++
++struct DFAnalysisPass : public llvm::ModulePass {
++    static char ID;
++    
++     DepWalker* depWalker;
++    DFAnalysisPass() : ModulePass(ID) {}
++
++    virtual bool runOnModule(llvm::Module &M) override;
++
++    Set<Instruction*> _find_difference(Set<BasicBlock*>);
++    void getAnalysisUsage(AnalysisUsage &AU) const override {
++      AU.addRequired<DominatorTreeWrapperPass>();
++      AU.setPreservesAll();
++    }
++    
++    // void init_cust();
++
++};  // end of struct DFAnalysisPass
++
++
++
++// } 
+\ No newline at end of file
+diff --git a/tools/OPDFI/dependency_analysis/dfi_lib/compile_lib.sh b/tools/OPDFI/dependency_analysis/dfi_lib/compile_lib.sh
+new file mode 100644
+index 00000000..7776039e
+--- /dev/null
++++ b/tools/OPDFI/dependency_analysis/dfi_lib/compile_lib.sh
+@@ -0,0 +1 @@
++clang++ -emit-llvm -c  $SVF_DIR/tools/OPDFI/dependency_analysis/dfi_lib/dfi_lib.c -o $SVF_DIR/tools/OPDFI/dependency_analysis/dfi_lib/dfi_lib.bc
+\ No newline at end of file
+diff --git a/tools/OPDFI/dependency_analysis/dfi_lib/dfi_lib.c b/tools/OPDFI/dependency_analysis/dfi_lib/dfi_lib.c
+new file mode 100644
+index 00000000..e8d097bb
+--- /dev/null
++++ b/tools/OPDFI/dependency_analysis/dfi_lib/dfi_lib.c
+@@ -0,0 +1,109 @@
++#include <stdlib.h>
++ #include <stdio.h>
++  #include <string.h>
++#define DFI_TABLE_SIZE 512
++#define DEF_USE_TABLE_SIZE 5120
++#define DEF_USE_TABLE_WIDTH 2
++#define DEF_USE_TABLE_FILE "/tmp/dfi_log.txt"
++// #include "ros/ros.h"
++unsigned int count=0;
++extern "C" {
++    void opdfi_dfi_store_check(int n);
++    void opdfi_dfi_load_check(int n);
++     void opdfi_dfi_store_taint(int n, void* addr);
++    void opdfi_dfi_load_checked(int n, void* addr);
++
++    void opdfi_sandbox_store_check(int n, void* addr);
++    void opdfi_sandbox_load_check(int n, void* addr);
++}
++  void opdfi_sandbox_store_check(int isprotected, void* addr){
++    //Simulate hardware operations
++  }
++    void opdfi_sandbox_load_check(int isprotected, void* addr){
++        //Simulate hardware operations
++    }
++
++bool hasInitTable=false;
++
++
++int def_use_tables[DEF_USE_TABLE_SIZE][DEF_USE_TABLE_WIDTH]={0};
++bool isValid(int id,int last_write){
++  if(hasInitTable==false){
++    //Init the table
++      FILE* file = fopen(DEF_USE_TABLE_FILE, "r");
++      if (file != NULL) {
++     
++        char line[256];
++          while (fgets(line, sizeof(line), file) != NULL) {
++            //  printf("%s", line);
++            // Process each line here
++           
++              int number;
++             
++            char* token = strtok(line, " ");
++          sscanf(token, "%d", &number);
++          token = strtok(NULL, " ");
++          int index = 0;
++            while (token != NULL) {
++              // Process each substring here
++              int def_use_value;
++              
++              if (sscanf(token, "%d", &def_use_value) == 1) {
++                def_use_tables[number%DEF_USE_TABLE_SIZE][index%DEF_USE_TABLE_WIDTH]=def_use_value;    
++                index++;
++              }
++
++              token = strtok(NULL, " ");
++            }
++
++          }
++
++          fclose(file);
++      } 
++    
++   
++    hasInitTable=true;
++  }
++
++  for(int i=0;i<DEF_USE_TABLE_WIDTH;i++){
++    if(def_use_tables[last_write%DEF_USE_TABLE_SIZE][i]==id){
++      return true;
++    }
++  }
++  //There is no dependency between the last write and the current read
++  //TODO, handle the possible error
++  return true; 
++}
++int dfi_tables[DFI_TABLE_SIZE]={0};
++void opdfi_dfi_store_taint(int id, void* addr){
++    dfi_tables[(unsigned long)addr%DFI_TABLE_SIZE]=id;
++      
++    return;
++
++}
++
++void opdfi_dfi_load_checked(int id, void* addr){
++  // count++;
++  int last_write=dfi_tables[(unsigned long)addr%DFI_TABLE_SIZE];
++  if(!isValid(id,last_write)){
++    //Halt the program
++  }
++  return;
++  
++    return;
++
++}
++
++void opdfi_dfi_store_check(int id){
++    
++    return;
++
++}
++
++void opdfi_dfi_load_check(int id){
++  // count++;
++  return;
++  
++    return;
++
++}
+\ No newline at end of file
+diff --git a/tools/OPDFI/dependency_analysis/instrumenter_loger.cpp b/tools/OPDFI/dependency_analysis/instrumenter_loger.cpp
+new file mode 100644
+index 00000000..54e64cf0
+--- /dev/null
++++ b/tools/OPDFI/dependency_analysis/instrumenter_loger.cpp
+@@ -0,0 +1,140 @@
++#include "common.h"
++
++void Instrumenter::instrument(Set<Instruction *> toadd)
++{
++    // *ofs<<"\n";
++    for (auto inst : toadd)
++    {
++        if (!inst)
++        {
++            continue;
++        }
++        if(instrumented_inst.size()>max_inst_instrument){
++            continue;
++        }
++        /*{
++
++             if(const LoadInst* loadInst= llvm::dyn_cast<llvm::LoadInst>(inst)){
++                  int num_def=1;
++                 if(load2numdef.find(inst)!=load2numdef.end()){
++                    num_def=load2numdef[inst];
++                }
++                    inst->getParent()->printAsOperand(*ofs,false);
++            *ofs<<","<<getTrueOffset(inst)<<","<<num_def<<";";
++             }else if(const StoreInst* storeInst= llvm::dyn_cast<llvm::StoreInst>(inst)){
++                      inst->getParent()->printAsOperand(*ofs,false);
++                     *ofs<<","<<getTrueOffset(inst)<<","<<-1<<";";
++             }
++
++        }*/
++        if (instrumented_inst.find(inst) != instrumented_inst.end())
++        {
++            continue;
++        }
++        llvm::IRBuilder<> ib(inst);
++
++        if (const LoadInst *loadInst = llvm::dyn_cast<llvm::LoadInst>(inst))
++        {
++            int num_def = 1;
++            if (load2numdef.find(inst) != load2numdef.end())
++            {
++
++                num_def = load2numdef[inst];
++                //  errs()<<"here inst "<<*loadInst<<" dd "<<num_def<<"\n";
++            }
++            // *ofs<<"【"<<getTrueOffset(inst)<<"】"<<";";
++
++            llvm::Value *pointerValue = (llvm::Value *)loadInst->getPointerOperand();
++            llvm::FunctionCallee fnew = M.getOrInsertFunction("opdfi_dfi_load_checked", llvm::Type::getVoidTy(M.getContext()), llvm::IntegerType::getInt32Ty(M.getContext()), pointerValue->getType());
++            llvm::Value *arg = llvm::ConstantInt::get(llvm::IntegerType::getInt32Ty(M.getContext()), instrumented_inst.size());
++            inst2id[inst] = instrumented_inst.size();
++            ib.CreateCall(fnew, {arg, pointerValue});
++
++            // llvm::Value* arg=llvm::ConstantInt::get(llvm::IntegerType::getInt32Ty(M.getContext()),num_def);
++            // ib.CreateCall(fnew,{arg});
++            instrumented_inst.insert(inst);
++            // inst->getParent()->printAsOperand(*ofs,false);
++            // *ofs<<","<<getTrueOffset(inst)<<","<<num_def<<";";
++            llvm::FunctionCallee fnew_sandbox = M.getOrInsertFunction("opdfi_sandbox_load_check", llvm::Type::getVoidTy(M.getContext()), llvm::IntegerType::getInt32Ty(M.getContext()), pointerValue->getType());
++            llvm::Value *arg_sandbox = llvm::ConstantInt::get(llvm::IntegerType::getInt32Ty(M.getContext()), 1);
++            ib.CreateCall(fnew_sandbox, {arg_sandbox, pointerValue});
++        }
++        else if (const StoreInst *storeInst = llvm::dyn_cast<llvm::StoreInst>(inst))
++        {
++            // *ofs<<"【"<<getTrueOffset(inst)<<"】"<<";";
++            //     llvm::FunctionCallee fnew=M.getOrInsertFunction("dfi_store_check",llvm::Type::getVoidTy(M.getContext()),llvm::IntegerType::getInt32Ty(M.getContext()));
++            // llvm::Value* arg=llvm::ConstantInt::get(llvm::IntegerType::getInt32Ty(M.getContext()),1);
++            //  ib.CreateCall(fnew,{arg});
++
++            llvm::Value *pointerValue = (llvm::Value *)storeInst->getPointerOperand();
++            llvm::FunctionCallee fnew = M.getOrInsertFunction("opdfi_dfi_store_taint", llvm::Type::getVoidTy(M.getContext()), llvm::IntegerType::getInt32Ty(M.getContext()), pointerValue->getType());
++            llvm::Value *arg = llvm::ConstantInt::get(llvm::IntegerType::getInt32Ty(M.getContext()), instrumented_inst.size());
++            inst2id[inst] = instrumented_inst.size();
++            ib.CreateCall(fnew, {arg, pointerValue});
++            instrumented_inst.insert(inst);
++
++            llvm::FunctionCallee fnew_sandbox = M.getOrInsertFunction("opdfi_sandbox_store_check", llvm::Type::getVoidTy(M.getContext()), llvm::IntegerType::getInt32Ty(M.getContext()), pointerValue->getType());
++            llvm::Value *arg_sandbox = llvm::ConstantInt::get(llvm::IntegerType::getInt32Ty(M.getContext()), 1);
++            ib.CreateCall(fnew_sandbox, {arg_sandbox, pointerValue});
++            // ofs->flush();
++        }
++    }
++}
++
++void Instrumenter::logToFile(Instruction *root)
++{
++    std::vector<Instruction *> WorkList;
++    WorkList.push_back(root);
++    while (!WorkList.empty())
++    {
++        Instruction *inst = WorkList.back();
++        WorkList.pop_back();
++        if (logged_inst.find(inst) != logged_inst.end())
++        {
++            continue;
++        }
++        logged_inst.insert(inst);
++
++        *ofs << inst->getParent()->getParent()->getName() << ",";
++        inst->getParent()->printAsOperand(*ofs, false);
++        *ofs << "," << getTrueOffset(inst) << " { ";
++
++        *dfi_ofs << inst2id[inst] << " { ";
++        if (const LoadInst *loadInst = llvm::dyn_cast<llvm::LoadInst>(inst))
++        {
++            if (load2store.find(inst) != load2store.end())
++            {
++                Set<Instruction *> depInsts = load2store[inst];
++                for (auto i : depInsts)
++                {
++                    *ofs << i->getParent()->getParent()->getName() << ",";
++                    i->getParent()->printAsOperand(*ofs, false);
++                    *ofs << "," << getTrueOffset(i) << " ";
++                    *dfi_ofs << inst2id[i] << " ";
++                    if (logged_inst.find(i) == logged_inst.end())
++                    {
++                        WorkList.push_back(i);
++                    }
++                }
++            }
++        }
++        else if (const StoreInst *storeInst = llvm::dyn_cast<llvm::StoreInst>(inst))
++        {
++            if (store2load.find(inst) != store2load.end())
++            {
++                Set<Instruction *> depInsts = store2load[inst];
++                for (auto i : depInsts)
++                {
++                    if (logged_inst.find(i) == logged_inst.end())
++                    {
++                        WorkList.push_back(i);
++                    }
++                }
++            }
++        }
++        *ofs << "}\n";
++        *dfi_ofs << "}\n";
++    }
++    ofs->flush();
++    dfi_ofs->flush();
++}
+diff --git a/tools/OPDFI/dependency_analysis/instrumenter_loger.h b/tools/OPDFI/dependency_analysis/instrumenter_loger.h
+new file mode 100644
+index 00000000..a57c3e73
+--- /dev/null
++++ b/tools/OPDFI/dependency_analysis/instrumenter_loger.h
+@@ -0,0 +1,61 @@
++#pragma once 
++
++
++#include "common.h"
++
++class Instrumenter{
++    // friend DFAnalysisPass;
++    // friend DepWalker;
++    public:
++    int total_inst;
++    int max_inst_instrument;
++
++    Set<Instruction*> instrumented_inst;
++     Map<Instruction*,int> load2numdef;
++      Map<Instruction*,Set<Instruction*>> load2store;
++      Map<Instruction*,Set<Instruction*>> store2load;
++      Set<Instruction*> logged_inst;
++
++ Map<Instruction*,int> inst2id;
++        llvm::raw_fd_ostream* ofs;
++        llvm::raw_fd_ostream* dfi_ofs;
++    llvm::Module &M;
++    bool maintainDef_num;
++    Instrumenter(llvm::Module& m):M(m),maintainDef_num(true){
++        int fd = open("log.txt", O_WRONLY | O_CREAT, 0666);
++        ofs= new llvm::raw_fd_ostream(fd,true);
++          int dfi_fd = open("/tmp/dfi_log.txt", O_WRONLY | O_CREAT, 0666);
++        dfi_ofs= new llvm::raw_fd_ostream(dfi_fd,true);
++            // ofs.open("log.txt", std::ofstream::out | std::ofstream::app);
++    }
++    ~Instrumenter(){
++         ofs->flush();
++            dfi_ofs->flush();
++
++    }
++
++    void instrument(Set<Instruction*> toadd);
++    void logToFile(Instruction* root);
++    inline int getTrueOffset(Instruction* _inst){
++            BasicBlock* bb=_inst->getParent();
++            int position=0;
++             for (BasicBlock::iterator it = bb->begin(), eit = bb->end();
++                    it != eit; ++it){
++                         Instruction* inst = &(*it);
++                        if(inst==_inst){
++                            return position;
++                        }
++                         if(const CallInst* callInst= llvm::dyn_cast<llvm::CallInst>(inst)){
++                                    llvm::Function *calledFunc=callInst->getCalledFunction();
++                                    if(calledFunc){
++                                        if(calledFunc->getName()=="dfi_load_check"||calledFunc->getName()=="dfi_store_check"){
++                                            continue;
++                                        }
++                                    }
++                         }
++                         position++;
++                    }
++
++                    return position;
++    }
++};
+diff --git a/tools/OPDFI/dfAnalysis.h b/tools/OPDFI/dfAnalysis.h
+new file mode 100644
+index 00000000..7c01e5c4
+--- /dev/null
++++ b/tools/OPDFI/dfAnalysis.h
+@@ -0,0 +1,67 @@
++#pragma once 
++
++#include "llvm/IR/Function.h"
++#include "llvm/IR/LegacyPassManager.h"
++#include "llvm/Pass.h"
++#include "llvm/Support/raw_ostream.h"
++#include "llvm/Transforms/IPO/PassManagerBuilder.h"
++#include <llvm/IR/Instructions.h>
++#include <llvm/IR/LLVMContext.h>
++#include <llvm/IR/Module.h>
++#include <llvm/Support/raw_ostream.h>
++#include <llvm/IR/IRBuilder.h>
++
++// #include <cassert>
++// #include <cstdio>
++// #include <fstream>
++// #include <iostream>
++// #include <set>
++// #include <sstream>
++// #include <string>
++// #include <fstream>
++// #include <fcntl.h>
++// #include <unistd.h>
++
++// #include "SVF-FE/LLVMUtil.h"
++// #include "WPA/WPAPass.h"
++// #include "Util/Options.h"
++// #include "DDA/DDAPass.h"
++// #include "SVF-FE/SVFIRBuilder.h"
++// #include "CFL/CFLAlias.h"
++// #include "CFL/CFLVF.h"
++#include "common.h"
++
++
++
++// using namespace llvm;
++// using namespace std;
++// using namespace SVF;
++
++// namespace {
++// class DepWalker;
++
++
++
++
++
++struct DFAnalysisPass : public llvm::ModulePass {
++    static char ID;
++    
++     DepWalker* depWalker;
++    DFAnalysisPass() : ModulePass(ID) {}
++
++    virtual bool runOnModule(llvm::Module &M) override;
++
++    Set<Instruction*> _find_difference(Set<BasicBlock*>);
++    void getAnalysisUsage(AnalysisUsage &AU) const override {
++      AU.addRequired<DominatorTreeWrapperPass>();
++      AU.setPreservesAll();
++    }
++    
++    // void init_cust();
++
++};  // end of struct DFAnalysisPass
++
++
++
++// } 
+\ No newline at end of file
+diff --git a/tools/WPA/bp_wpa.cpp b/tools/WPA/bp_wpa.cpp
+new file mode 100644
+index 00000000..305ec2ea
+--- /dev/null
++++ b/tools/WPA/bp_wpa.cpp
+@@ -0,0 +1,62 @@
++//===- wpa.cpp -- Whole program analysis -------------------------------------//
++//
++//                     SVF: Static Value-Flow Analysis
++//
++// Copyright (C) <2013-2017>  <Yulei Sui>
++//
++
++// This program is free software: you can redistribute it and/or modify
++// it under the terms of the GNU General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++
++// You should have received a copy of the GNU General Public License
++// along with this program.  If not, see <http://www.gnu.org/licenses/>.
++//
++//===-----------------------------------------------------------------------===//
++
++/*
++ // Whole Program Pointer Analysis
++ //
++ // Author: Yulei Sui,
++ */
++
++#include "SVF-FE/LLVMUtil.h"
++#include "WPA/WPAPass.h"
++#include "Util/Options.h"
++
++using namespace llvm;
++using namespace std;
++using namespace SVF;
++
++static llvm::cl::opt<std::string> InputFilename(llvm::cl::Positional,
++        llvm::cl::desc("<input bitcode>"), llvm::cl::init("-"));
++
++int main(int argc, char ** argv)
++{
++
++    int arg_num = 0;
++    char **arg_value = new char*[argc];
++    std::vector<std::string> moduleNameVec;
++    LLVMUtil::processArguments(argc, argv, arg_num, arg_value, moduleNameVec);
++    cl::ParseCommandLineOptions(arg_num, arg_value,
++                                "Whole Program Points-to Analysis\n");
++
++    if (Options::WriteAnder == "ir_annotator")
++    {
++        LLVMModuleSet::getLLVMModuleSet()->preProcessBCs(moduleNameVec);
++    }
++
++    SVFModule* svfModule = LLVMModuleSet::getLLVMModuleSet()->buildSVFModule(moduleNameVec);
++    svfModule->buildSymbolTableInfo();
++
++    WPAPass *wpa = new WPAPass();
++    wpa->runOnModule(svfModule);
++
++    return 0;
++}
+\ No newline at end of file
+diff --git a/tools/WPA/wpa.cpp b/tools/WPA/wpa.cpp
+index 305ec2ea..5fc38352 100644
+--- a/tools/WPA/wpa.cpp
++++ b/tools/WPA/wpa.cpp
+@@ -44,6 +44,10 @@ int main(int argc, char ** argv)
+     char **arg_value = new char*[argc];
+     std::vector<std::string> moduleNameVec;
+     LLVMUtil::processArguments(argc, argv, arg_num, arg_value, moduleNameVec);
++
++     for(int i=0;i<arg_num;i++){
++        errs()<<"  ~~~~~~"<<arg_value[i]<<":~~\n";
++    }
+     cl::ParseCommandLineOptions(arg_num, arg_value,
+                                 "Whole Program Points-to Analysis\n");
+ 
+@@ -52,6 +56,9 @@ int main(int argc, char ** argv)
+         LLVMModuleSet::getLLVMModuleSet()->preProcessBCs(moduleNameVec);
+     }
+ 
++    for(auto s:moduleNameVec){
++        errs()<<"  >>>>"<<s<<":~~\n";
++    }
+     SVFModule* svfModule = LLVMModuleSet::getLLVMModuleSet()->buildSVFModule(moduleNameVec);
+     svfModule->buildSymbolTableInfo();
+ 
