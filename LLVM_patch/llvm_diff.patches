@@ -1,3 +1,11 @@
+diff --git a/.gitattributes b/.gitattributes
+new file mode 100644
+index 000000000000..4e8188f93ebd
+--- /dev/null
++++ b/.gitattributes
+@@ -0,0 +1 @@
++build export-ignore
+\ No newline at end of file
 diff --git a/.gitignore b/.gitignore
 index b33fbbf93237..ac5fd02f7edf 100644
 --- a/.gitignore
@@ -11,6 +19,16 @@ index b33fbbf93237..ac5fd02f7edf 100644
  #==============================================================================#
  # Explicit files to ignore (only matches one).
  #==============================================================================#
+diff --git a/llvm/README.md b/llvm/README.md
+new file mode 100644
+index 000000000000..f3085c520fdd
+--- /dev/null
++++ b/llvm/README.md
+@@ -0,0 +1,3 @@
++The full llvm-project is from commit:
++
++75e33f71c2dae584b13a7d1186ae0a038ba98838
+\ No newline at end of file
 diff --git a/llvm/lib/Transforms/CMakeLists.txt b/llvm/lib/Transforms/CMakeLists.txt
 index dda5f6de11e3..dfd7c2cd26d0 100644
 --- a/llvm/lib/Transforms/CMakeLists.txt
@@ -270,5 +288,338 @@ index 000000000000..c140e9114adc
 +
 +char Checkpoint_insert::ID = 0;
 +static RegisterPass<Checkpoint_insert> X("cp_insert", "checkpoint insert Pass",
++                                     false /* Only looks at CFG */,
++                                     false /* Analysis Pass */);
+diff --git a/llvm/lib/Transforms/code_switch_llvmpasses/helper_information_log/CMakeLists.txt b/llvm/lib/Transforms/code_switch_llvmpasses/helper_information_log/CMakeLists.txt
+new file mode 100644
+index 000000000000..0793fdf68a99
+--- /dev/null
++++ b/llvm/lib/Transforms/code_switch_llvmpasses/helper_information_log/CMakeLists.txt
+@@ -0,0 +1,22 @@
++# If we don't need RTTI or EH, there's no reason to export anything
++# from the hello plugin.
++if( NOT LLVM_REQUIRES_RTTI )
++  if( NOT LLVM_REQUIRES_EH )
++    set(LLVM_EXPORTED_SYMBOL_FILE ${CMAKE_CURRENT_SOURCE_DIR}/LLVMCode_inform_log.exports)
++  endif()
++endif()
++
++if(WIN32 OR CYGWIN)
++  set(LLVM_LINK_COMPONENTS Core Support)
++endif()
++
++add_llvm_library( LLVMCode_inform_log MODULE BUILDTREE_ONLY
++  code_inform_log.cpp
++
++  DEPENDS
++  intrinsics_gen
++  PLUGIN_TOOL
++  opt
++  )
++include_directories(/home/opdfi/toolchain/json/include)
++  
+\ No newline at end of file
+diff --git a/llvm/lib/Transforms/code_switch_llvmpasses/helper_information_log/LLVMCode_inform_log.exports b/llvm/lib/Transforms/code_switch_llvmpasses/helper_information_log/LLVMCode_inform_log.exports
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/llvm/lib/Transforms/code_switch_llvmpasses/helper_information_log/code_inform_log.cpp b/llvm/lib/Transforms/code_switch_llvmpasses/helper_information_log/code_inform_log.cpp
+new file mode 100644
+index 000000000000..44a0755bb2f4
+--- /dev/null
++++ b/llvm/lib/Transforms/code_switch_llvmpasses/helper_information_log/code_inform_log.cpp
+@@ -0,0 +1,295 @@
++#pragma once
++#include <cassert>
++#include <cstdio>
++#include <fcntl.h>
++#include <fstream>
++#include <iostream>
++#include <set>
++#include <sstream>
++#include <string>
++#include <unistd.h>
++
++#include "llvm/IR/Function.h"
++#include "llvm/IR/LegacyPassManager.h"
++#include "llvm/Pass.h"
++#include "llvm/Support/raw_ostream.h"
++#include "llvm/Transforms/IPO/PassManagerBuilder.h"
++#include <llvm/IR/IRBuilder.h>
++#include <llvm/IR/Instructions.h>
++#include <llvm/IR/LLVMContext.h>
++#include <llvm/IR/Module.h>
++#include <llvm/Support/raw_ostream.h>
++
++#include <nlohmann/json.hpp>
++using json = nlohmann::json;
++
++#define ENTRY_FUNC "opdfi_entry"
++
++using namespace llvm;
++using namespace std;
++
++static cl::opt<std::string> MyArg("switch_num",
++                                  cl::desc("Describe the argument here"),
++                                  cl::value_desc("arg"));
++static cl::opt<std::string> Arg_num_version("num_version",
++                                  cl::desc("Describe the argument here"),
++                                  cl::value_desc("arg"));
++
++std::vector<std::string> checkpoints_location = {ENTRY_FUNC};
++
++struct Code_Info_log : public llvm::ModulePass {
++  static char ID;
++
++  int switching_point_num = 1;
++  int current_instrumented_switching_point = 0;
++  int num_code_version = 0;
++  Code_Info_log() : ModulePass(ID) {}
++
++  // This function is used to create customized code version to deploy different
++  // security policies. As a prototype, we only simply duplicate the code.
++  int callsite_id = 0;
++  json infoJson;
++  StringRef getBaseFuncName(StringRef fn){
++    StringRef result=fn;
++    if(fn.endswith("_version_opdfi")){
++      int version_start_pos = fn.find_last_of('_', fn.find_last_of('_') - 1);
++      int version_end_pos = fn.find_last_of('_',version_start_pos-1);
++      result = fn.substr(0, version_end_pos);
++      return result;
++    }
++  
++    return result;
++  }
++
++  bool isDuplicated(Function* callee,Module &M){
++    StringRef baseFuncName = getBaseFuncName(callee->getName());
++      std::string version_name_tmp= baseFuncName.str()+"_"+std::to_string(1)+"_version_opdfi";
++                  if(M.getFunction(version_name_tmp)==nullptr){
++                      return false;
++                  }
++    return true;
++  }
++  bool runOnModule(llvm::Module &M) {
++
++    string argument = MyArg.getValue();
++    switching_point_num = stoi(argument);
++
++    string argument_code_version = Arg_num_version.getValue();
++        num_code_version = stoi(argument_code_version);
++    errs() << "switching_point_num: " << switching_point_num << "\n";
++    errs() << "num_code_version: " << num_code_version << "\n";
++    // errs() << "Hello: ";
++    // ...
++    infoJson["funNames"] = std::vector<std::string>();
++    for (Function &F : M.functions()) {
++      if (F.isDeclaration()) {
++        continue;
++      }
++      // errs() << "--Function: " << F.getName() << "\n";
++
++      // Create a JSON object
++
++      infoJson["funNames"].push_back(F.getName().str());
++      // Add missing closing bracket for std::vector initialization
++
++      // Add more properties to the JSON object as needed
++
++      // json nestedDict;
++      // nestedDict["nestedKey1"] = "nestedValue1";
++      // nestedDict["nestedKey2"] = "nestedValue2";
++
++      // // Add the nested dictionary to the main dictionary
++      // infoJson["fundw"][F.getName().str()] = nestedDict;
++      // Convert the JSON object to a string
++      std::string jsonString = infoJson.dump();
++
++      // Write the JSON string to a file
++      std::ofstream outputFile("/tmp/output.json");
++      outputFile << jsonString;
++      outputFile.close(); // Close the outputFile
++                          // outputFile.close();
++
++      // Rest of the code
++      // ...
++    }
++
++    for (Function &F : M.functions()) {
++      if (F.isDeclaration())
++        continue;
++      // Skip intrinsic functions
++      if (F.isIntrinsic()) {
++        continue;
++      }
++      if (F.getName().startswith("opdfi")) {
++        continue;
++      }
++
++      // if (F.) {
++      //     continue;
++      // }
++      // errs() << "--Function: " << F.getName() << "\n";
++
++      std::vector<Instruction *> to_erase;
++      for (BasicBlock &BB : F) {
++        for (Instruction &I : BB) {
++          if (CallBase *CI = dyn_cast<CallBase>(&I)) {
++            Function *Callee = CI->getCalledFunction();
++            if (CI->isIndirectCall()) {
++              continue; // Skip indirect calls.
++            }
++            if (!Callee || Callee->isIntrinsic() ||
++                Callee->getName().startswith("opdfi")||!isDuplicated(Callee,M)) {
++              continue; // External call or already indirect or intrinsic
++                        // function.
++            }
++
++            // // Create a function pointer type for the callee.
++            // PointerType *FuncPtrType = Callee->getType()->getPointerTo();
++
++            // Replace the direct call with an indirect call.
++            IRBuilder<> Builder(CI);
++            llvm::FunctionCallee fun_slack_est = M.getOrInsertFunction("opdfi_slack_estimate", llvm::Type::getVoidTy(M.getContext()));
++                               Builder.CreateCall(fun_slack_est);
++            // FunctionType *FTy =
++            // cast<FunctionType>(FuncPtrType->getElementType());
++            FunctionType *FTy = Callee->getFunctionType();
++            PointerType *Pty = PointerType::get(Callee->getFunctionType(), 0);
++
++            // Builder.SetInsertPoint(CI);
++            // Value *FuncPtr = Builder.CreatePointerCast(Callee, Pty, "");
++            Value *FuncPtr = Builder.CreatePointerCast(Callee, Pty, "funcptr");
++
++            llvm::GlobalVariable *gFuncPtr = M.getGlobalVariable(
++                "gFuncPtr" + std::to_string(callsite_id), true);
++
++            llvm::GlobalVariable *gArrayFuncPtr = M.getGlobalVariable(
++                "gFuncPtr" + std::to_string(callsite_id) + "_array", true);
++
++            if (gFuncPtr) {
++              // If the global variable exists, create a store instruction to
++              // assign the function pointer
++
++            } else {
++              // If the global variable does not exist, you must create it
++              gFuncPtr = new llvm::GlobalVariable(
++                  M, FuncPtr->getType(),
++                  false, // Not a constant
++                  llvm::GlobalValue::InternalLinkage,
++                  llvm::cast<llvm::Constant>(FuncPtr),
++                  "gFuncPtr" + std::to_string(callsite_id));
++     
++              {
++            
++                int ArraySize = num_code_version; // For example, an array of size 10
++
++                // Create the array type
++                ArrayType *IntArrayType = ArrayType::get(FuncPtr->getType(), ArraySize);
++
++                // Create the initializer for the global array
++                std::vector<Constant *> InitValues;
++                StringRef baseFuncName = getBaseFuncName(Callee->getName());
++                // errs() << "baseFuncName: " << baseFuncName <<" , original name: "<<Callee->getName()<< "\n";
++                InitValues.push_back(llvm::cast<llvm::Constant>(FuncPtr));
++                for (int i = 0; i < ArraySize; ++i) {
++                  // Initialize each element with i
++                    std::string version_name_tmp= baseFuncName.str()+"_"+std::to_string(i+1)+"_version_opdfi";
++                  if(M.getFunction(version_name_tmp)!=nullptr){
++                    // errs()<<"found: "<<version_name_tmp.c_str()<<"\n";
++                    Function *F_tmp = M.getFunction(version_name_tmp);
++                    Value *FuncPtr_tmp = Builder.CreatePointerCast(F_tmp, Pty,"");
++                      InitValues.push_back(llvm::cast<llvm::Constant>(FuncPtr_tmp));
++                  }else{
++                    // errs()<<"Function not found: "<<version_name_tmp.c_str()<<"\n";
++                      InitValues.push_back(llvm::cast<llvm::Constant>(FuncPtr));
++                  }
++                  
++                }
++
++                
++
++                Constant *ArrayInit =
++                    ConstantArray::get(IntArrayType, InitValues);
++
++                // Create the global variable
++                gArrayFuncPtr=new GlobalVariable(
++                    M, // Module to which this global variable belongs
++                    IntArrayType, // Type of the global variable
++                    false,        // Whether the global variable is constant
++                    GlobalValue::PrivateLinkage, // Visibility to other modules
++                    ArrayInit,                   // Initializer
++                    "gFuncPtr" + std::to_string(callsite_id)+"_array"
++                    );
++              }
++            }
++
++            llvm::FunctionCallee fun_code_switch = M.getOrInsertFunction(
++                "opdfi_instrumented_code_switching",
++                llvm::Type::getVoidTy(M.getContext()), 
++                gFuncPtr->getType(),gArrayFuncPtr->getType());
++
++            // Value *LoadedFuncPtr = Builder.CreatePointerCast(gFuncPtr, Pty,
++            // "jkj");
++
++            Builder.CreateCall(fun_code_switch, {gFuncPtr,gArrayFuncPtr});
++            
++            callsite_id++;
++            FunctionType *slackFuncType = FunctionType::get(
++                Type::getVoidTy(M.getContext()), {Pty}, false);
++            // PointerType *slackFuncPtrType = PointerType::get(slackFuncType,
++            // 0); Value *ptrToGVar = Builder.CreatePointerCast(gFuncPtr,
++            // gFuncPtr->getType()->getPointerTo(), "ptrToMyGlobalVar");
++            Value *LoadedFuncPtr = Builder.CreateLoad(
++                Pty, gFuncPtr, gFuncPtr->getName() + ".load");
++            // const LoadInst* loadInst=
++            // llvm::dyn_cast<llvm::LoadInst>(LoadedFuncPtr);
++            //   llvm::Value* pointerValue = (llvm::Value*)
++            //   loadInst->getPointerOperand();
++
++            // llvm::FunctionCallee fun_slack =
++            //     M.getOrInsertFunction("opdfi_test_code_switching",
++            //     llvm::Type::getVoidTy(M.getContext()),slackFuncType,slackFuncType->getPointerTo());
++           
++            
++
++            
++            // Value *FuncPtr__ = Builder.CreateBitCast(Callee,
++            // PointerType::get(Callee->getFunctionType(), 0), "funcptr");
++
++            std::vector<Value *> Args(CI->arg_begin(), CI->arg_end());;
++            // for (auto &Arg : CI->args()) {
++            //   Args.push_back(Arg.get());
++            // }
++            // errs() << "build-createme: " << *CI<<"dd " <<Args.size()<<"--
++            // "<<*(*(CI->arg_begin()))<<" ** "<<*(CI->arg_end()) << "\n";
++
++            CallInst *IndirectCall =
++                Builder.CreateCall(FTy, LoadedFuncPtr, Args);
++
++            // // Replace all uses of the old call with the new call.
++
++            CI->replaceAllUsesWith(IndirectCall);
++            // errs() << "build-createme: " << *CI << "   \n";
++            // Remove the old call from the basic block.
++            Builder.SetInsertPoint(CI->getParent(), CI->getIterator());
++            // CI->eraseFromParent();
++            to_erase.push_back(CI);
++            // break;
++          }
++        }
++      }
++
++      for (size_t i = 0; i < to_erase.size(); i++) {
++        to_erase[i]->eraseFromParent();
++      }
++
++      // errs() << F.getName() << "\n";
++    }
++
++    return true;
++  }
++};
++
++char Code_Info_log::ID = 0;
++static RegisterPass<Code_Info_log> X("code_info_log", "code_info_log Pass",
 +                                     false /* Only looks at CFG */,
 +                                     false /* Analysis Pass */);
